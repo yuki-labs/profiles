@@ -356,17 +356,22 @@ function App() {
                   </button>
                 </div>
                 <div className="peer-list">
-                  {customPeers.map((peer, i) => (
-                    <div key={i} className="peer-item">
-                      <div className={`status-indicator ${activePeers.includes(peer) ? 'online' : 'offline'}`}></div>
-                      <span className="peer-url">{peer}</span>
-                      {customPeers.length > 1 && (
-                        <button className="btn-remove-tag" onClick={() => removeCustomPeer(peer)}>
-                          <Trash2 size={12} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  {customPeers.map((peer, i) => {
+                    const normalize = (url: string) => url.replace(/^wss?:\/\//, '').replace(/^https?:\/\//, '').replace(/\/+$/, '');
+                    const isOnline = activePeers.some(ap => normalize(ap) === normalize(peer));
+
+                    return (
+                      <div key={i} className="peer-item">
+                        <div className={`status-indicator ${isOnline ? 'online' : 'offline'}`}></div>
+                        <span className="peer-url">{peer}</span>
+                        {customPeers.length > 1 && (
+                          <button className="btn-remove-tag" onClick={() => removeCustomPeer(peer)}>
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
