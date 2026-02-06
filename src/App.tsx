@@ -22,6 +22,7 @@ function App() {
   const [shareData, setShareData] = useState<{ id: string, shareUrl: string } | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [newPeerUrl, setNewPeerUrl] = useState('');
   const [customPeers, setCustomPeers] = useState<string[]>(() => {
     const saved = localStorage.getItem('p2p_peers');
     return saved ? JSON.parse(saved) : RELAY_PEERS;
@@ -110,13 +111,15 @@ function App() {
   }, []);
 
   const addCustomPeer = () => {
-    const peer = prompt('Enter peer URL (e.g. http://localhost:8765/gun):');
-    if (peer && !customPeers.includes(peer)) {
-      const newPeers = [...customPeers, peer];
+    const url = newPeerUrl.trim();
+    if (url && url.startsWith('http') && !customPeers.includes(url)) {
+      const newPeers = [...customPeers, url];
       setCustomPeers(newPeers);
       localStorage.setItem('p2p_peers', JSON.stringify(newPeers));
-      // Tell gun about the new peer
-      gun.opt({ peers: [peer] });
+      gun.opt({ peers: [url] });
+      setNewPeerUrl('');
+    } else if (url) {
+      alert('Please enter a valid HTTP(S) URL.');
     }
   };
 
@@ -267,7 +270,18 @@ function App() {
               <div className="share-field">
                 <div className="section-header-inline">
                   <label><Activity size={14} /> P2P Relay Peers</label>
-                  <button className="btn-add-inline" onClick={addCustomPeer}><Plus size={14} /></button>
+                </div>
+                <div className="input-with-action" style={{ marginBottom: '1rem' }}>
+                  <input
+                    value={newPeerUrl}
+                    onChange={(e) => setNewPeerUrl(e.target.value)}
+                    placeholder="http://peer-url:port/gun"
+                    onKeyDown={(e) => e.key === 'Enter' && addCustomPeer()}
+                  />
+                  <button className="btn btn-primary" onClick={addCustomPeer} title="Add Peer">
+                    <Plus size={16} />
+                    <span>Add</span>
+                  </button>
                 </div>
                 <div className="peer-list">
                   {customPeers.map((peer, i) => (
