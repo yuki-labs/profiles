@@ -35,7 +35,11 @@ const server = http.createServer((req, res) => {
 const gun = Gun({
     web: server,
     file: 'relay-data',
-    peers: ['https://gun-manhattan.herokuapp.com/gun'] // Bootstrap to the main mesh
+    peers: [
+        'https://gun-manhattan.herokuapp.com/gun',
+        'https://gun-us.herokuapp.com/gun',
+        'https://relay.peer.ooo/gun'
+    ]
 });
 
 server.listen(port, host, () => {

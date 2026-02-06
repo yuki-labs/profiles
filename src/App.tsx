@@ -17,8 +17,15 @@ declare global {
 }
 
 // Initialize Gun with public relay peers for bootstrap
-const RELAY_PEERS = ['https://gun-manhattan.herokuapp.com/gun'];
-const gun = Gun(RELAY_PEERS);
+const RELAY_PEERS = [
+  'https://gun-manhattan.herokuapp.com/gun',
+  'https://gun-us.herokuapp.com/gun',
+  'https://relay.peer.ooo/gun'
+];
+const gun = Gun({
+  peers: RELAY_PEERS,
+  retry: Infinity // Keep trying to connect even if peers are down
+});
 const profiles = gun.get('profile-maker-p2p-v1');
 
 
@@ -33,7 +40,10 @@ function App() {
   const [newPeerUrl, setNewPeerUrl] = useState('');
   const [customPeers, setCustomPeers] = useState<string[]>(() => {
     const saved = localStorage.getItem('p2p_peers');
-    return saved ? JSON.parse(saved) : RELAY_PEERS;
+    const savedPeers = saved ? JSON.parse(saved) : [];
+    // Merge RELAY_PEERS into saved peers to ensure new bootstrap peers are included
+    const merged = Array.from(new Set([...RELAY_PEERS, ...savedPeers]));
+    return merged;
   });
   const [activePeers, setActivePeers] = useState<string[]>(customPeers);
 
