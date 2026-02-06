@@ -186,3 +186,72 @@
   border-radius: 0.5rem;
   text-align: center;
 }
+
+/* P2P Status Styles */
+.section-header-inline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.peer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  background: var(--bg-primary);
+  padding: 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-color);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.peer-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
+.peer-url {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-indicator.online {
+  background: #10b981;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+}
+
+.status-indicator.offline {
+  background: #ef4444;
+}
+
+.btn-remove-tag {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-remove-tag:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}

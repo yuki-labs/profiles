@@ -20,11 +20,15 @@ declare global {
 const RELAY_PEERS = [
   'https://gun-manhattan.herokuapp.com/gun',
   'https://gun-us.herokuapp.com/gun',
-  'https://relay.peer.ooo/gun'
+  'https://relay.peer.ooo/gun',
+  'https://gun-ams1.marda.io/gun',
+  'https://gun-nyc1.marda.io/gun',
+  'https://gun-sfo3.marda.io/gun'
 ];
 const gun = Gun({
   peers: RELAY_PEERS,
-  retry: Infinity // Keep trying to connect even if peers are down
+  retry: Infinity,
+  localStorage: false // We use our own localStorage for profiles
 });
 const profiles = gun.get('profile-maker-p2p-v1');
 
