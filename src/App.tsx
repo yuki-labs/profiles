@@ -64,17 +64,36 @@ function App() {
   useEffect(() => {
     if (viewId) {
       setIsViewing(true);
-      profiles.get(viewId).once((data: any) => {
-        if (data) {
-          // Gun returns flattened objects, but our structure matches mostly
-          // We need to handle nested objects if Gun flattens them, but for this simple schema it works
-          setViewData(data as ProfileData);
-        } else {
-          alert('P2P Profile not found');
+      setViewData(null);
+
+      console.log(`Searching for P2P profile: ${viewId}`);
+
+      let found = false;
+      const timeout = setTimeout(() => {
+        if (!found) {
+          alert('P2P Profile not found. The network might be slow or the peer is offline.');
+          setIsViewing(false);
           setViewId(null);
         }
-        setIsViewing(false);
+      }, 15000); // Wait 15 seconds for decentralized discovery
+
+      // Use .on() instead of .once() as it's more reliable for gossip data that arrives late
+      profiles.get(viewId).on((data: any) => {
+        if (data && (data.name || data.bio)) {
+          console.log("Profile data found!");
+          found = true;
+          clearTimeout(timeout);
+          setViewData(data as ProfileData);
+          setIsViewing(false);
+        }
       });
+
+      return () => {
+        clearTimeout(timeout);
+        // Note: gun .off() is sometimes buggy in certain versions, 
+        // but it's good practice to prevent memory leaks if possible.
+        try { profiles.get(viewId).off(); } catch (e) { }
+      };
     }
   }, [viewId]);
 
