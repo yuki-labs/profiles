@@ -1,73 +1,92 @@
-# React + TypeScript + Vite
+# ✨ Profile Maker P2P
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-Currently, two official plugins are available:
+A decentralized, **Peer-to-Peer** profile creation and hosting platform. Create beautiful, shareable profile cards that live on a distributed mesh network rather than a centralized server.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🚀 Key Features
 
-## React Compiler
+- **P2P Decentralization**: Powered by [GunDB](https://gun.eco/), profiles are gossiped across a decentralized mesh.
+- **Dedicated Hosting Nodes**: Run a standalone relay node on your desktop or in the cloud (Railway) to ensure your data stays online.
+- **Intelligent Auto-Discovery**: The app automatically "seeks out" and connects to dedicated hosting nodes in the network.
+- **WYSIWYG Editor**: Direct-on-card editing with live preview.
+- **Portable Desktop App**: Built with Electron for a native, distraction-free experience.
+- **One-Click Sharing**: Generate P2P links that anyone can view using the built-in Viewer Mode.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🧠 P2P API & Data Mesh
 
-## Expanding the ESLint configuration
+Because this app is decentralized, there is no traditional REST API. Instead, you interact with a **Distributed Graph API**. Any application can join the mesh to read or search for profiles.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Connecting to the Mesh
+To interact with the data programmatically, use the `gun` library:
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+```javascript
+import Gun from 'gun';
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+// Connect to the public bootstrap relay
+const gun = Gun(['https://gun-manhattan.herokuapp.com/gun']);
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+// Access the Profile Maker namespace
+const profiles = gun.get('profile-maker-p2p-v1');
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Reading a Profile
+If you have a P2P ID (e.g., from a share link), you can fetch the data directly:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```javascript
+const profileId = 'p2p-abc123xyz';
+profiles.get(profileId).once((data) => {
+  console.log("Retrieved Profile:", data);
+});
 ```
+
+### Discovery API
+You can listen for new dedicated hosting nodes (relays) that join the network:
+
+```javascript
+gun.get('profile-maker-discovery').get('relays').map().on((node) => {
+  if (node && node.url) {
+    console.log("Discovered Relay Node:", node.url);
+  }
+});
+```
+
+## 🌐 P2P Hosting Node (Relay)
+
+To ensure your profiles are always accessible, you can run a dedicated hosting node.
+
+### Desktop Node
+Run a dedicated node with a status UI:
+```bash
+npm run hosting:desktop
+```
+
+### Cloud Node (Railway)
+1. Fork/Clone this repo to GitHub.
+2. Connect the repo to [Railway](https://railway.app/).
+3. Set the start command to:
+   ```bash
+   npm run hosting:railway
+   ```
+
+## 🛠️ Getting Started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) (v18 or higher)
+
+### Installation & Dev
+```bash
+npm install
+npm run electron:dev
+```
+
+### Building for Production
+```bash
+npm run electron:build
+```
+Executables will be generated in `dist-electron/`.
+
+---
+
+Built with ❤️ for the decentralized web.
