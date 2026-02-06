@@ -64,7 +64,8 @@ npm run hosting:desktop
 ### Cloud Node (Railway)
 1. Fork/Clone this repo to GitHub.
 2. Connect the repo to [Railway](https://railway.app/).
-3. Set the start command to:
+3. **CRITICAL**: Go to **Settings > Networking** in Railway and click **Generate Domain**. The app needs this public URL to announce itself to the P2P mesh.
+4. Set the start command to:
    ```bash
    npm run hosting:railway
    ```
