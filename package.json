@@ -59,6 +59,12 @@
     ],
     "win": {
       "target": "portable"
+    },
+    "protocols": {
+      "name": "profile-maker-deep-link",
+      "schemes": [
+        "profilemaker"
+      ]
     }
   }
 }

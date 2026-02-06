@@ -8,6 +8,14 @@ import { Download, Upload, RefreshCcw, Share2, Copy, X, Globe, Settings, Activit
 import Gun from 'gun';
 import 'gun/lib/load'; // Optional but helps with larger objects
 
+declare global {
+  interface Window {
+    electronAPI?: {
+      onOpenProfile: (callback: (id: string) => void) => void;
+    };
+  }
+}
+
 // Initialize Gun with public relay peers for bootstrap
 const RELAY_PEERS = ['https://gun-manhattan.herokuapp.com/gun'];
 const gun = Gun(RELAY_PEERS);
@@ -19,7 +27,7 @@ function App() {
     const saved = localStorage.getItem('profile_maker_data');
     return saved ? JSON.parse(saved) : defaultProfile;
   });
-  const [shareData, setShareData] = useState<{ id: string, shareUrl: string } | null>(null);
+  const [shareData, setShareData] = useState<{ id: string, shareUrl: string, deepLink: string } | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [newPeerUrl, setNewPeerUrl] = useState('');
@@ -110,6 +118,16 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    // 3. Handle deep links from Electron
+    if (window.electronAPI) {
+      window.electronAPI.onOpenProfile((id: string) => {
+        console.log('Deep link received:', id);
+        setViewId(id);
+      });
+    }
+  }, []);
+
   const addCustomPeer = () => {
     const url = newPeerUrl.trim();
     if (url && url.startsWith('http') && !customPeers.includes(url)) {
@@ -171,7 +189,8 @@ function App() {
       profiles.get(id).put(profile);
 
       const shareUrl = `${window.location.origin}${window.location.pathname}?view=${id}`;
-      setShareData({ id, shareUrl });
+      const deepLink = `profilemaker://${id}`;
+      setShareData({ id, shareUrl, deepLink });
     } catch (err) {
       alert('P2P Share failed. Please try again.');
     } finally {
@@ -323,6 +342,17 @@ function App() {
                   <button onClick={() => {
                     navigator.clipboard.writeText(shareData.shareUrl);
                     alert('Link copied!');
+                  }}><Copy size={16} /></button>
+                </div>
+              </div>
+
+              <div className="share-field">
+                <label>Deep Link (For Desktop App)</label>
+                <div className="input-with-action">
+                  <input readOnly value={shareData.deepLink} />
+                  <button onClick={() => {
+                    navigator.clipboard.writeText(shareData.deepLink);
+                    alert('Deep link copied!');
                   }}><Copy size={16} /></button>
                 </div>
               </div>
