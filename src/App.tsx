@@ -71,17 +71,28 @@ function App() {
 
   useEffect(() => {
     // 1. Listen for new dedicated nodes in the discovery bucket
-    gun.get('profile-maker-discovery').get('relays').map().on((node: any) => {
+    console.log("Starting P2P discovery listener...");
+    const discoveryBucket = gun.get('profile-maker-discovery').get('relays');
+
+    discoveryBucket.map().on((node: any, urlKey: string) => {
+      // Gun sometimes returns the key as the second argument
+      const url = (node && typeof node === 'object' && node.url) ? node.url : urlKey;
+      const lastSeen = (node && typeof node === 'object' && node.lastSeen) ? node.lastSeen : (typeof node === 'number' ? node : 0);
+
       const currentPeers = customPeersRef.current;
-      if (node && node.url && !currentPeers.includes(node.url)) {
-        // Validation: Only auto-connect if it has been seen in the last 10 minutes
-        const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
-        if (node.lastSeen > tenMinutesAgo) {
-          console.log(`Discovered dedicated node: ${node.url}`);
-          const newPeers = [...currentPeers, node.url];
+
+      if (url && url.startsWith('http') && !currentPeers.includes(url)) {
+        // Validation: Seen in the last 30 minutes (giving more buffer)
+        const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
+
+        if (lastSeen > thirtyMinutesAgo) {
+          console.log(`Found candidate relay: ${url}`);
+          const newPeers = [...currentPeers, url];
           setCustomPeers(newPeers);
           localStorage.setItem('p2p_peers', JSON.stringify(newPeers));
-          gun.opt({ peers: [node.url] });
+
+          // Add the NEW list of all peers to gun
+          gun.opt({ peers: newPeers });
         }
       }
     });
@@ -91,7 +102,8 @@ function App() {
       // @ts-ignore
       const peers = gun.back('opt.peers');
       if (peers) {
-        setActivePeers(Object.keys(peers).filter(url => peers[url].enabled));
+        // Just show the URLs we have in our peer graph
+        setActivePeers(Object.keys(peers));
       }
     }, 3000);
     return () => clearInterval(interval);

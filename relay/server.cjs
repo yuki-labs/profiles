@@ -10,14 +10,24 @@ const host = process.env.HOST || '0.0.0.0';
 
 // More robust public URL detection
 const domain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
-const publicUrl = domain
-    ? `https://${domain}/gun`
+// Ensure we don't double up on https:// if the env var already has it
+const cleanDomain = domain ? domain.replace(/^https?:\/\//, '') : null;
+const publicUrl = cleanDomain
+    ? `https://${cleanDomain}/gun`
     : `http://localhost:${port}/gun`;
 
 // Simple HTTP server with CORS headers for Gun
 const server = http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range');
+
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+    }
+
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Profile Maker P2P Relay Node is active.');
 });
@@ -33,26 +43,30 @@ server.listen(port, host, () => {
 
     // Announce availability
     const announce = () => {
-        console.log(`Announcing node availability: ${publicUrl}`);
+        console.log(`[P2P Discovery] Announcing: ${publicUrl}`);
         gun.get('profile-maker-discovery').get('relays').get(publicUrl).put({
             url: publicUrl,
             type: 'dedicated-node',
             lastSeen: Date.now()
+        }, (ack) => {
+            if (ack.err) console.error('[P2P Discovery] Announce Error:', ack.err);
+            else console.log('[P2P Discovery] Announce Successful');
         });
     };
 
-    // Announce once at start
+    // Announce frequently at first, then slow down
     announce();
-
-    // Re-announce every 60 seconds
+    setTimeout(announce, 5000);
+    setTimeout(announce, 15000);
     setInterval(announce, 60000);
 });
 
 // Minimal stats logging
 setInterval(() => {
     const peers = gun.back('opt.peers');
-    const peerCount = Object.keys(peers || {}).length;
-    console.log(`[${new Date().toLocaleTimeString()}] Connected Peers: ${peerCount}`);
+    const peerLinks = Object.keys(peers || {});
+    const activeCount = peerLinks.filter(url => peers[url].enabled).length;
+    console.log(`[${new Date().toLocaleTimeString()}] Active Connections: ${activeCount} / Total Seen: ${peerLinks.length}`);
 }, 15000);
 
 module.exports = { gun, server };
