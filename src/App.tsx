@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import type { ProfileData } from './types.ts';
 import { defaultProfile } from './types.ts';
@@ -27,6 +27,19 @@ function App() {
     return saved ? JSON.parse(saved) : RELAY_PEERS;
   });
   const [activePeers, setActivePeers] = useState<string[]>(customPeers);
+
+  const customPeersRef = useRef<string[]>(customPeers);
+
+  useEffect(() => {
+    customPeersRef.current = customPeers;
+  }, [customPeers]);
+
+  // Initial peer load on mount
+  useEffect(() => {
+    if (customPeers.length > 0) {
+      gun.opt({ peers: customPeers });
+    }
+  }, []);
 
   const [viewId, setViewId] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -59,12 +72,13 @@ function App() {
   useEffect(() => {
     // 1. Listen for new dedicated nodes in the discovery bucket
     gun.get('profile-maker-discovery').get('relays').map().on((node: any) => {
-      if (node && node.url && !customPeers.includes(node.url)) {
+      const currentPeers = customPeersRef.current;
+      if (node && node.url && !currentPeers.includes(node.url)) {
         // Validation: Only auto-connect if it has been seen in the last 10 minutes
         const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
         if (node.lastSeen > tenMinutesAgo) {
           console.log(`Discovered dedicated node: ${node.url}`);
-          const newPeers = [...customPeers, node.url];
+          const newPeers = [...currentPeers, node.url];
           setCustomPeers(newPeers);
           localStorage.setItem('p2p_peers', JSON.stringify(newPeers));
           gun.opt({ peers: [node.url] });

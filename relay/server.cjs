@@ -8,12 +8,16 @@ const http = require('http');
 const port = process.env.PORT || 8765;
 const host = process.env.HOST || '0.0.0.0';
 
-// Determine the announcement URL (Railway URL or local)
-const publicUrl = process.env.RAILWAY_STATIC_URL
-    ? `https://${process.env.RAILWAY_STATIC_URL}/gun`
+// More robust public URL detection
+const domain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
+const publicUrl = domain
+    ? `https://${domain}/gun`
     : `http://localhost:${port}/gun`;
 
+// Simple HTTP server with CORS headers for Gun
 const server = http.createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Profile Maker P2P Relay Node is active.');
 });
@@ -27,21 +31,22 @@ const gun = Gun({
 server.listen(port, host, () => {
     console.log(`Relay node listening on http://${host}:${port}/gun`);
 
-    // Self-register in the discovery bucket
-    console.log(`Announcing node availability: ${publicUrl}`);
-    gun.get('profile-maker-discovery').get('relays').get(publicUrl).put({
-        url: publicUrl,
-        type: 'dedicated-node',
-        lastSeen: Date.now()
-    });
-});
+    // Announce availability
+    const announce = () => {
+        console.log(`Announcing node availability: ${publicUrl}`);
+        gun.get('profile-maker-discovery').get('relays').get(publicUrl).put({
+            url: publicUrl,
+            type: 'dedicated-node',
+            lastSeen: Date.now()
+        });
+    };
 
-// Update "last seen" timestamp periodically
-setInterval(() => {
-    gun.get('profile-maker-discovery').get('relays').get(publicUrl).put({
-        lastSeen: Date.now()
-    });
-}, 60000);
+    // Announce once at start
+    announce();
+
+    // Re-announce every 60 seconds
+    setInterval(announce, 60000);
+});
 
 // Minimal stats logging
 setInterval(() => {
