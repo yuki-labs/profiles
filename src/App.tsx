@@ -135,13 +135,33 @@ function App() {
       }
     });
 
-    // 2. Basic peer discovery check (Gun internally manages this, but we can poll for connectivity)
+    // 2. Continuous peer graph enrichment
     const interval = setInterval(() => {
       // @ts-ignore
       const peers = gun.back('opt.peers');
       if (peers) {
-        // Just show the URLs we have in our peer graph
-        setActivePeers(Object.keys(peers));
+        const foundUrls = Object.keys(peers);
+        const currentPeers = customPeersRef.current;
+
+        // Update total seen list (monotonic growth)
+        let changed = false;
+        const updatedPeers = [...currentPeers];
+
+        foundUrls.forEach(url => {
+          if (url && url.startsWith('http') && !updatedPeers.includes(url)) {
+            updatedPeers.push(url);
+            changed = true;
+          }
+        });
+
+        if (changed) {
+          setCustomPeers(updatedPeers);
+          localStorage.setItem('p2p_peers', JSON.stringify(updatedPeers));
+        }
+
+        // track which peers are ACTIVELY connected (enabled)
+        const connected = foundUrls.filter(url => peers[url].enabled);
+        setActivePeers(connected);
       }
     }, 3000);
     return () => clearInterval(interval);

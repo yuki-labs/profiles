@@ -65,12 +65,24 @@ server.listen(port, host, () => {
     setInterval(announce, 60000);
 });
 
+// Historical tracking to ensure "Total Seen" is monotonic
+const historicalPeers = new Set([
+    'https://gun-manhattan.herokuapp.com/gun',
+    'https://gun-us.herokuapp.com/gun',
+    'https://relay.peer.ooo/gun'
+]);
+
 // Minimal stats logging
 setInterval(() => {
     const peers = gun.back('opt.peers');
-    const peerLinks = Object.keys(peers || {});
-    const activeCount = peerLinks.filter(url => peers[url].enabled).length;
-    console.log(`[${new Date().toLocaleTimeString()}] Active Connections: ${activeCount} / Total Seen: ${peerLinks.length}`);
+    const currentPeerLinks = Object.keys(peers || {});
+
+    // Add any newly discovered peers to our historical set
+    currentPeerLinks.forEach(url => historicalPeers.add(url));
+
+    const activeCount = currentPeerLinks.filter(url => peers[url].enabled).length;
+
+    console.log(`[${new Date().toLocaleTimeString()}] Active Connections: ${activeCount} / Total Seen: ${historicalPeers.size}`);
 }, 15000);
 
 module.exports = { gun, server };
