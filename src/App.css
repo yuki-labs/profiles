@@ -255,3 +255,34 @@
   background: rgba(239, 68, 68, 0.1);
   color: #ef4444;
 }
+/* Connection Banner */
+.connection-banner {
+  background: #facc15;
+  color: #854d0e;
+  padding: 0.5rem 2rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-bottom: 2px solid #eab308;
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.btn-link {
+  background: #854d0e;
+  color: white;
+  border: none;
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-link:hover {
+  opacity: 0.9;
+}

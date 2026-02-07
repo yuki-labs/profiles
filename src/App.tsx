@@ -16,18 +16,10 @@ declare global {
   }
 }
 
-// Initialize Gun with public relay peers for bootstrap
-const RELAY_PEERS = [
-  'https://gun-manhattan.herokuapp.com/gun',
-  'https://gun-us.herokuapp.com/gun',
-  'https://relay.peer.ooo/gun',
-  'https://gun-ams1.marda.io/gun',
-  'https://gun-nyc1.marda.io/gun',
-  'https://gun-sfo3.marda.io/gun'
-];
+// Initialize Gun without default relays for maximum privacy
 const gun = Gun({
-  peers: RELAY_PEERS,
-  retry: 3000, // Retry every 3 seconds if connection drops
+  peers: [],
+  retry: 3000,
   localStorage: false
 });
 const profiles = gun.get('profile-maker-p2p-v1');
@@ -44,10 +36,7 @@ function App() {
   const [newPeerUrl, setNewPeerUrl] = useState('');
   const [customPeers, setCustomPeers] = useState<string[]>(() => {
     const saved = localStorage.getItem('p2p_peers');
-    const savedPeers = saved ? JSON.parse(saved) : [];
-    // Merge RELAY_PEERS into saved peers to ensure new bootstrap peers are included
-    const merged = Array.from(new Set([...RELAY_PEERS, ...savedPeers]));
-    return merged;
+    return saved ? JSON.parse(saved) : [];
   });
   const [activePeers, setActivePeers] = useState<string[]>(customPeers);
 
@@ -113,34 +102,7 @@ function App() {
   }, [viewId]);
 
   useEffect(() => {
-    // 1. Listen for new dedicated nodes in the discovery bucket
-    const discoveryBucket = gun.get('profile-maker-discovery').get('relays');
-
-    discoveryBucket.map().on((node: any, urlKey: string) => {
-      // Gun sometimes returns the key as the second argument
-      const url = (node && typeof node === 'object' && node.url) ? node.url : urlKey;
-      const lastSeen = (node && typeof node === 'object' && node.lastSeen) ? node.lastSeen : (typeof node === 'number' ? node : 0);
-
-      const currentPeers = customPeersRef.current;
-      const removedPeers = removedPeersRef.current;
-
-      if (url && (url.startsWith('http') || url.startsWith('ws')) && !currentPeers.includes(url) && !removedPeers.has(url)) {
-        // Validation: Seen in the last 30 minutes (giving more buffer)
-        const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
-
-        if (lastSeen > thirtyMinutesAgo) {
-          console.log(`Found candidate relay: ${url}`);
-          const newPeers = [...currentPeers, url];
-          setCustomPeers(newPeers);
-          localStorage.setItem('p2p_peers', JSON.stringify(newPeers));
-
-          // Add the NEW list of all peers to gun
-          gun.opt({ peers: [url] });
-        }
-      }
-    });
-
-    // 2. Peer status check only (Removed aggressive auto-readding)
+    // 1. Peer status check only
     const interval = setInterval(() => {
       // @ts-ignore
       const peers = gun.back('opt.peers');
@@ -286,6 +248,15 @@ function App() {
 
   return (
     <div className="app-container">
+      {customPeers.length === 0 && (
+        <div className="connection-banner">
+          <div className="banner-content">
+            <Globe size={16} />
+            <span>P2P Offline: No relays configured. You won't be able to search or share profiles.</span>
+            <button className="btn-link" onClick={() => setShowSettings(true)}>Setup Relay Now</button>
+          </div>
+        </div>
+      )}
       <header className="main-header">
         <div className="brand">
           <div className="logo-spark">✨</div>
