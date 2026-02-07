@@ -72,6 +72,29 @@ server.listen(port, host, () => {
     setTimeout(announce, 5000);
     setTimeout(announce, 15000);
     setInterval(announce, 60000);
+
+    // Dynamic Discovery: Find other relays and connect to them
+    gun.get('profile-maker-discovery').get('relays').map().on((node, urlKey) => {
+        if (bootstrapPeers.length === 0) return; // Stay isolated if no initial peers
+
+        const url = (node && typeof node === 'object' && node.url) ? node.url : urlKey;
+        const lastSeen = (node && typeof node === 'object' && node.lastSeen) ? node.lastSeen : (typeof node === 'number' ? node : 0);
+
+        // Don't connect to ourselves
+        if (url === publicUrl) return;
+
+        if (url && (url.startsWith('http') || url.startsWith('ws'))) {
+            const peers = gun.back('opt.peers');
+            if (peers && !peers[url]) {
+                // Seen in last 30 mins
+                const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
+                if (lastSeen > thirtyMinutesAgo) {
+                    console.log(`[P2P Discovery] Auto-connecting to discovered node: ${url}`);
+                    gun.opt({ peers: [url] });
+                }
+            }
+        }
+    });
 });
 
 // Historical tracking to ensure "Total Seen" is monotonic
