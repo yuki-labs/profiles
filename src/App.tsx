@@ -52,6 +52,7 @@ function App() {
   const [activePeers, setActivePeers] = useState<string[]>(customPeers);
 
   const customPeersRef = useRef<string[]>(customPeers);
+  const removedPeersRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     customPeersRef.current = customPeers;
@@ -113,7 +114,6 @@ function App() {
 
   useEffect(() => {
     // 1. Listen for new dedicated nodes in the discovery bucket
-    console.log("Starting P2P discovery listener...");
     const discoveryBucket = gun.get('profile-maker-discovery').get('relays');
 
     discoveryBucket.map().on((node: any, urlKey: string) => {
@@ -122,8 +122,9 @@ function App() {
       const lastSeen = (node && typeof node === 'object' && node.lastSeen) ? node.lastSeen : (typeof node === 'number' ? node : 0);
 
       const currentPeers = customPeersRef.current;
+      const removedPeers = removedPeersRef.current;
 
-      if (url && (url.startsWith('http') || url.startsWith('ws')) && !currentPeers.includes(url)) {
+      if (url && (url.startsWith('http') || url.startsWith('ws')) && !currentPeers.includes(url) && !removedPeers.has(url)) {
         // Validation: Seen in the last 30 minutes (giving more buffer)
         const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
 
@@ -134,37 +135,18 @@ function App() {
           localStorage.setItem('p2p_peers', JSON.stringify(newPeers));
 
           // Add the NEW list of all peers to gun
-          gun.opt({ peers: newPeers });
+          gun.opt({ peers: [url] });
         }
       }
     });
 
-    // 2. Continuous peer graph enrichment
+    // 2. Peer status check only (Removed aggressive auto-readding)
     const interval = setInterval(() => {
       // @ts-ignore
       const peers = gun.back('opt.peers');
       if (peers) {
         const foundUrls = Object.keys(peers);
-        const currentPeers = customPeersRef.current;
-
-        // Update total seen list (monotonic growth)
-        let changed = false;
-        const updatedPeers = [...currentPeers];
-
-        foundUrls.forEach(url => {
-          if (url && (url.startsWith('http') || url.startsWith('ws')) && !updatedPeers.includes(url)) {
-            updatedPeers.push(url);
-            changed = true;
-          }
-        });
-
-        if (changed) {
-          setCustomPeers(updatedPeers);
-          localStorage.setItem('p2p_peers', JSON.stringify(updatedPeers));
-        }
-
         // track which peers are ACTIVELY connected
-        // We check for 'enabled' OR if there is an active 'wire' connection
         const connected = foundUrls.filter(url => {
           const p = peers[url];
           return p && (p.enabled || p.wire);
@@ -203,6 +185,17 @@ function App() {
     const newPeers = customPeers.filter(p => p !== url);
     setCustomPeers(newPeers);
     localStorage.setItem('p2p_peers', JSON.stringify(newPeers));
+
+    // Remember this peer was explicitly removed so we don't auto-add it again
+    removedPeersRef.current.add(url);
+
+    // Disable it in Gun
+    // @ts-ignore
+    const peers = gun.back('opt.peers');
+    if (peers && peers[url]) {
+      peers[url].enabled = false;
+      if (peers[url].wire) peers[url].wire.close();
+    }
   };
 
   const handleExport = () => {
