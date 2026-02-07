@@ -116,6 +116,32 @@ function App() {
         setActivePeers(connected);
       }
     }, 3000);
+    // 2. Conditional Auto-Discovery (only if user has already added a relay)
+    const discoveryBucket = gun.get('profile-maker-discovery').get('relays');
+    discoveryBucket.map().on((node: any, urlKey: string) => {
+      // Use the ref to get latest state inside the callback
+      const currentPeers = customPeersRef.current;
+      const removedPeers = removedPeersRef.current;
+
+      // ONLY auto-discover if the user has opted-in by adding at least one manual relay
+      if (currentPeers.length === 0) return;
+
+      const url = (node && typeof node === 'object' && node.url) ? node.url : urlKey;
+      const lastSeen = (node && typeof node === 'object' && node.lastSeen) ? node.lastSeen : (typeof node === 'number' ? node : 0);
+
+      if (url && (url.startsWith('http') || url.startsWith('ws')) && !currentPeers.includes(url) && !removedPeers.has(url)) {
+        // Validation: Seen in the last 30 minutes
+        const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
+        if (lastSeen > thirtyMinutesAgo) {
+          console.log(`Auto-discovered node: ${url}`);
+          const newPeers = [...currentPeers, url];
+          setCustomPeers(newPeers);
+          localStorage.setItem('p2p_peers', JSON.stringify(newPeers));
+          gun.opt({ peers: [url] });
+        }
+      }
+    });
+
     return () => clearInterval(interval);
   }, []);
 
