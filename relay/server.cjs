@@ -41,7 +41,8 @@ const gun = Gun({
         'https://relay.peer.ooo/gun',
         'https://gun-ams1.marda.io/gun',
         'https://gun-nyc1.marda.io/gun',
-        'https://gun-sfo3.marda.io/gun'
+        'https://gun-sfo3.marda.io/gun',
+        'https://gunjs.herokuapp.com/gun'
     ]
 });
 
@@ -75,7 +76,8 @@ const historicalPeers = new Set([
     'https://relay.peer.ooo/gun',
     'https://gun-ams1.marda.io/gun',
     'https://gun-nyc1.marda.io/gun',
-    'https://gun-sfo3.marda.io/gun'
+    'https://gun-sfo3.marda.io/gun',
+    'https://gunjs.herokuapp.com/gun'
 ]);
 
 // Minimal stats logging
