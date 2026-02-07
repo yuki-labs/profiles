@@ -21,16 +21,13 @@ const envPeers = process.env.INITIAL_PEERS
     ? process.env.INITIAL_PEERS.split(',').map(p => p.trim()).filter(p => p.length > 0)
     : [];
 
-const bootstrapPeers = [
-    'https://gun-manhattan.herokuapp.com/gun',
-    'https://gun-us.herokuapp.com/gun',
-    'https://relay.peer.ooo/gun',
-    'https://gun-ams1.marda.io/gun',
-    'https://gun-nyc1.marda.io/gun',
-    'https://gun-sfo3.marda.io/gun',
-    'https://gunjs.herokuapp.com/gun',
-    ...envPeers
-];
+const bootstrapPeers = envPeers;
+
+if (bootstrapPeers.length === 0) {
+    console.warn('\n[!] WARNING: No P2P bootstrap peers configured.');
+    console.warn('[!] This relay is currently isolated and cannot reach the global mesh.');
+    console.warn('[!] Please add some initial peers using the INITIAL_PEERS environment variable.\n');
+}
 
 // Simple HTTP server with CORS headers for Gun
 const server = http.createServer((req, res) => {
