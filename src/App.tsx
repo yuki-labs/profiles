@@ -27,8 +27,8 @@ const RELAY_PEERS = [
 ];
 const gun = Gun({
   peers: RELAY_PEERS,
-  retry: Infinity,
-  localStorage: false // We use our own localStorage for profiles
+  retry: 3000, // Retry every 3 seconds if connection drops
+  localStorage: false
 });
 const profiles = gun.get('profile-maker-p2p-v1');
 
@@ -123,7 +123,7 @@ function App() {
 
       const currentPeers = customPeersRef.current;
 
-      if (url && url.startsWith('http') && !currentPeers.includes(url)) {
+      if (url && (url.startsWith('http') || url.startsWith('ws')) && !currentPeers.includes(url)) {
         // Validation: Seen in the last 30 minutes (giving more buffer)
         const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
 
@@ -152,7 +152,7 @@ function App() {
         const updatedPeers = [...currentPeers];
 
         foundUrls.forEach(url => {
-          if (url && url.startsWith('http') && !updatedPeers.includes(url)) {
+          if (url && (url.startsWith('http') || url.startsWith('ws')) && !updatedPeers.includes(url)) {
             updatedPeers.push(url);
             changed = true;
           }
@@ -163,8 +163,12 @@ function App() {
           localStorage.setItem('p2p_peers', JSON.stringify(updatedPeers));
         }
 
-        // track which peers are ACTIVELY connected (enabled)
-        const connected = foundUrls.filter(url => peers[url].enabled);
+        // track which peers are ACTIVELY connected
+        // We check for 'enabled' OR if there is an active 'wire' connection
+        const connected = foundUrls.filter(url => {
+          const p = peers[url];
+          return p && (p.enabled || p.wire);
+        });
         setActivePeers(connected);
       }
     }, 3000);
