@@ -16,6 +16,22 @@ const publicUrl = cleanDomain
     ? `https://${cleanDomain}/gun`
     : `http://localhost:${port}/gun`;
 
+// Support for manual initial peers via environment variables
+const envPeers = process.env.INITIAL_PEERS
+    ? process.env.INITIAL_PEERS.split(',').map(p => p.trim()).filter(p => p.length > 0)
+    : [];
+
+const bootstrapPeers = [
+    'https://gun-manhattan.herokuapp.com/gun',
+    'https://gun-us.herokuapp.com/gun',
+    'https://relay.peer.ooo/gun',
+    'https://gun-ams1.marda.io/gun',
+    'https://gun-nyc1.marda.io/gun',
+    'https://gun-sfo3.marda.io/gun',
+    'https://gunjs.herokuapp.com/gun',
+    ...envPeers
+];
+
 // Simple HTTP server with CORS headers for Gun
 const server = http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -35,15 +51,7 @@ const server = http.createServer((req, res) => {
 const gun = Gun({
     web: server,
     file: 'relay-data',
-    peers: [
-        'https://gun-manhattan.herokuapp.com/gun',
-        'https://gun-us.herokuapp.com/gun',
-        'https://relay.peer.ooo/gun',
-        'https://gun-ams1.marda.io/gun',
-        'https://gun-nyc1.marda.io/gun',
-        'https://gun-sfo3.marda.io/gun',
-        'https://gunjs.herokuapp.com/gun'
-    ]
+    peers: bootstrapPeers
 });
 
 server.listen(port, host, () => {
@@ -70,15 +78,7 @@ server.listen(port, host, () => {
 });
 
 // Historical tracking to ensure "Total Seen" is monotonic
-const historicalPeers = new Set([
-    'https://gun-manhattan.herokuapp.com/gun',
-    'https://gun-us.herokuapp.com/gun',
-    'https://relay.peer.ooo/gun',
-    'https://gun-ams1.marda.io/gun',
-    'https://gun-nyc1.marda.io/gun',
-    'https://gun-sfo3.marda.io/gun',
-    'https://gunjs.herokuapp.com/gun'
-]);
+const historicalPeers = new Set(bootstrapPeers);
 
 // Minimal stats logging
 setInterval(() => {
