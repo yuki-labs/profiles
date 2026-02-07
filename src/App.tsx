@@ -4,7 +4,7 @@ import type { ProfileData } from './types.ts';
 import { defaultProfile } from './types.ts';
 
 import ProfilePreview from './components/ProfilePreview.tsx';
-import { Download, Upload, RefreshCcw, Share2, Copy, X, Globe, Settings, Activity, Plus } from 'lucide-react';
+import { Download, Upload, RefreshCcw, Share2, Copy, X, Globe, Settings, Activity, Plus, Trash2 } from 'lucide-react';
 import Gun from 'gun';
 import 'gun/lib/load'; // Optional but helps with larger objects
 
@@ -41,6 +41,7 @@ function App() {
   const [activePeers, setActivePeers] = useState<string[]>(customPeers);
 
   const customPeersRef = useRef<string[]>(customPeers);
+  const removedPeersRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     customPeersRef.current = customPeers;
@@ -121,6 +122,7 @@ function App() {
     discoveryBucket.map().on((node: any, urlKey: string) => {
       // Use the ref to get latest state inside the callback
       const currentPeers = customPeersRef.current;
+      const removedPeers = removedPeersRef.current;
 
       // ONLY auto-discover if the user has opted-in by adding at least one manual relay
       if (currentPeers.length === 0) return;
@@ -128,7 +130,7 @@ function App() {
       const url = (node && typeof node === 'object' && node.url) ? node.url : urlKey;
       const lastSeen = (node && typeof node === 'object' && node.lastSeen) ? node.lastSeen : (typeof node === 'number' ? node : 0);
 
-      if (url && (url.startsWith('http') || url.startsWith('ws')) && !currentPeers.includes(url)) {
+      if (url && (url.startsWith('http') || url.startsWith('ws')) && !currentPeers.includes(url) && !removedPeers.has(url)) {
         // Validation: Seen in the last 30 minutes
         const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
         if (lastSeen > thirtyMinutesAgo) {
@@ -164,6 +166,23 @@ function App() {
       setNewPeerUrl('');
     } else if (url) {
       alert('Please enter a valid HTTP(S) URL.');
+    }
+  };
+
+  const removeCustomPeer = (url: string) => {
+    const newPeers = customPeers.filter(p => p !== url);
+    setCustomPeers(newPeers);
+    localStorage.setItem('p2p_peers', JSON.stringify(newPeers));
+
+    // Remember this peer was explicitly removed so we don't auto-add it again
+    removedPeersRef.current.add(url);
+
+    // Disable it in Gun
+    // @ts-ignore
+    const peers = gun.back('opt.peers');
+    if (peers && peers[url]) {
+      peers[url].enabled = false;
+      if (peers[url].wire) peers[url].wire.close();
     }
   };
 
@@ -339,6 +358,9 @@ function App() {
                       <div key={i} className="peer-item">
                         <div className={`status-indicator ${isOnline ? 'online' : 'offline'}`}></div>
                         <span className="peer-url">{peer}</span>
+                        <button className="btn-remove-tag" onClick={() => removeCustomPeer(peer)}>
+                          <Trash2 size={12} />
+                        </button>
                       </div>
                     );
                   })}
