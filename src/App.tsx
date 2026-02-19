@@ -129,12 +129,28 @@ function App() {
       const peers = gun.back('opt.peers');
       if (peers) {
         const foundUrls = Object.keys(peers);
-        // track which peers are ACTIVELY connected
+        // Gun's internal peer state is unreliable — enabled/wire may not be set
+        // even on active connections. Treat a peer as connected unless it's
+        // explicitly disabled or has no state at all.
         const connected = foundUrls.filter(url => {
           const p = peers[url];
-          return p && (p.enabled || p.wire);
+          if (!p) return false;
+          // Explicitly disabled means disconnected
+          if (p.enabled === false && !p.wire) return false;
+          // Otherwise it's in the peer list, so Gun is tracking it
+          return true;
         });
         setActivePeers(connected);
+
+        // Debug: log peer state every 15s for diagnostics
+        if (Date.now() % 15000 < 3000) {
+          console.log('[P2P Debug] Peers:', foundUrls.map(url => ({
+            url: url.substring(0, 60),
+            enabled: peers[url]?.enabled,
+            hasWire: !!peers[url]?.wire,
+            wireState: peers[url]?.wire?.readyState
+          })));
+        }
       }
     }, 3000);
 
