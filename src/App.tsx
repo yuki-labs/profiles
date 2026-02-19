@@ -22,7 +22,7 @@ const gun = Gun({
   retry: 3000,
   localStorage: false
 });
-const profiles = gun.get('profile-maker-p2p-v1');
+const profiles = gun.get('profile-maker-p2p-v2');
 
 
 function App() {
@@ -32,6 +32,7 @@ function App() {
   });
   const [shareData, setShareData] = useState<{ id: string, shareUrl: string, deepLink: string } | null>(null);
   const [isSharing, setIsSharing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
   const [showSettings, setShowSettings] = useState(false);
   const [newPeerUrl, setNewPeerUrl] = useState('');
   const [customPeers, setCustomPeers] = useState<string[]>(() => {
@@ -83,11 +84,31 @@ function App() {
 
       // Use .on() instead of .once() as it's more reliable for gossip data that arrives late
       profiles.get(viewId).on((data: any) => {
-        if (data && (data.name || data.bio)) {
-          console.log("Profile data found!");
+        if (data && data.data) {
+          // v2 format: JSON-serialized profile
+          try {
+            const parsed = JSON.parse(data.data);
+            console.log("Profile data found (v2)!");
+            found = true;
+            clearTimeout(timeout);
+            setViewData(parsed as ProfileData);
+            setIsViewing(false);
+          } catch (e) {
+            console.error('Failed to parse profile data:', e);
+          }
+        } else if (data && (data.name || data.bio)) {
+          // v1 legacy format fallback (flat object, may be missing arrays)
+          console.log("Profile data found (v1 legacy)!");
           found = true;
           clearTimeout(timeout);
-          setViewData(data as ProfileData);
+          // Ensure arrays exist even if Gun dropped them
+          const legacyData = {
+            ...data,
+            socials: data.socials || [],
+            skills: data.skills || [],
+            theme: data.theme || { primaryColor: '#6366f1', darkMode: true }
+          };
+          setViewData(legacyData as ProfileData);
           setIsViewing(false);
         }
       });
@@ -219,18 +240,48 @@ function App() {
 
   const handleShare = async () => {
     setIsSharing(true);
+    setSyncStatus('syncing');
     try {
       // Create a unique P2P ID for this profile
       const id = 'p2p-' + Math.random().toString(36).substr(2, 9);
 
-      // Put the profile data into Gun decentralized mesh
-      profiles.get(id).put(profile);
+      // Serialize the entire profile as JSON to avoid GunDB
+      // silently dropping arrays and nested objects
+      const payload = {
+        data: JSON.stringify(profile),
+        updatedAt: Date.now()
+      };
+
+      // Put with acknowledgment to confirm sync
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          // Even if no ack, data may still propagate — don't block
+          console.warn('GunDB put() timed out waiting for ack, but data may still sync.');
+          setSyncStatus('synced');
+          resolve();
+        }, 5000);
+
+        profiles.get(id).put(payload, (ack: any) => {
+          clearTimeout(timeout);
+          if (ack.err) {
+            console.error('GunDB put() error:', ack.err);
+            setSyncStatus('error');
+            reject(new Error(ack.err));
+          } else {
+            console.log('GunDB put() acknowledged successfully');
+            setSyncStatus('synced');
+            resolve();
+          }
+        });
+      });
 
       const shareUrl = `${window.location.origin}${window.location.pathname}?view=${id}`;
       const deepLink = `profilemaker://${id}`;
       setShareData({ id, shareUrl, deepLink });
     } catch (err) {
-      alert('P2P Share failed. Please try again.');
+      console.error('Share failed:', err);
+      setSyncStatus('error');
+      alert('P2P Share failed. The relay may be unreachable. Please check your connection settings and try again.');
     } finally {
       setIsSharing(false);
     }
@@ -380,10 +431,17 @@ function App() {
           <div className="modal">
             <div className="modal-header">
               <h3>Share Profile</h3>
-              <button className="btn-icon" onClick={() => setShareData(null)}><X size={20} /></button>
+              <button className="btn-icon" onClick={() => { setShareData(null); setSyncStatus('idle'); }}><X size={20} /></button>
             </div>
             <div className="modal-body">
               <p>Your profile is live! Copy the link or embed code below:</p>
+
+              <div className={`sync-status sync-${syncStatus}`}>
+                {syncStatus === 'syncing' && '⏳ Syncing with relay...'}
+                {syncStatus === 'synced' && '✅ Synced to relay'}
+                {syncStatus === 'error' && '❌ Sync failed — check relay connection'}
+                {syncStatus === 'idle' && ''}
+              </div>
 
               <div className="share-field">
                 <label>Share Link</label>

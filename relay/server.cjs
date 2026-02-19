@@ -41,6 +41,24 @@ const server = http.createServer((req, res) => {
         return;
     }
 
+    // Health check endpoint for diagnosing connectivity
+    if (req.url === '/health') {
+        const peers = gun ? gun.back('opt.peers') : {};
+        const peerUrls = Object.keys(peers || {});
+        const activeCount = peerUrls.filter(url => peers[url] && peers[url].enabled).length;
+        const healthData = {
+            status: 'ok',
+            publicUrl,
+            activePeers: activeCount,
+            totalPeersSeen: peerUrls.length,
+            uptime: process.uptime(),
+            timestamp: Date.now()
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(healthData, null, 2));
+        return;
+    }
+
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Profile Maker P2P Relay Node is active.');
 });
