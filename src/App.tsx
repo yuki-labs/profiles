@@ -123,36 +123,42 @@ function App() {
   }, [viewId]);
 
   useEffect(() => {
-    // 1. Peer status check only
-    const interval = setInterval(() => {
-      // @ts-ignore
-      const peers = gun.back('opt.peers');
-      if (peers) {
-        const foundUrls = Object.keys(peers);
-        // Gun's internal peer state is unreliable — enabled/wire may not be set
-        // even on active connections. Treat a peer as connected unless it's
-        // explicitly disabled or has no state at all.
-        const connected = foundUrls.filter(url => {
-          const p = peers[url];
-          if (!p) return false;
-          // Explicitly disabled means disconnected
-          if (p.enabled === false && !p.wire) return false;
-          // Otherwise it's in the peer list, so Gun is tracking it
-          return true;
-        });
-        setActivePeers(connected);
-
-        // Debug: log peer state every 15s for diagnostics
-        if (Date.now() % 15000 < 3000) {
-          console.log('[P2P Debug] Peers:', foundUrls.map(url => ({
-            url: url.substring(0, 60),
-            enabled: peers[url]?.enabled,
-            hasWire: !!peers[url]?.wire,
-            wireState: peers[url]?.wire?.readyState
-          })));
-        }
+    // 1. Peer status check via direct HTTP health check
+    // Gun's internal peer state (enabled/wire) is unreliable and often undefined
+    // even when data is flowing. Instead, we ping relay URLs directly.
+    const checkPeerHealth = async () => {
+      const currentPeers = customPeersRef.current;
+      if (currentPeers.length === 0) {
+        setActivePeers([]);
+        return;
       }
-    }, 3000);
+
+      const results = await Promise.all(
+        currentPeers.map(async (peerUrl) => {
+          try {
+            // Strip /gun suffix if present and fetch the base URL
+            const baseUrl = peerUrl.replace(/\/gun\/?$/, '');
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000);
+            await fetch(baseUrl, {
+              method: 'HEAD',
+              mode: 'no-cors', // Railway may not send CORS for HEAD
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            // no-cors gives opaque response (status 0), but that means it's reachable
+            return peerUrl;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      setActivePeers(results.filter((url): url is string => url !== null));
+    };
+
+    checkPeerHealth();
+    const interval = setInterval(checkPeerHealth, 10000);
 
     // 2. Conditional Auto-Discovery (only if user has already added a relay)
     const discoveryBucket = gun.get('profile-maker-discovery').get('relays');
