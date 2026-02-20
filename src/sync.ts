@@ -86,11 +86,11 @@ export function shareProfile(
             }
         });
 
-        provider.on('connection-error', (err: Error) => {
+        provider.on('connection-error', (evt: Event) => {
             clearTimeout(timeoutId);
-            console.error('[Y.js] Connection error:', err);
+            console.error('[Y.js] Connection error:', evt);
             cleanup();
-            reject(new Error(`Failed to connect to relay: ${err.message}`));
+            reject(new Error('Failed to connect to relay'));
         });
     });
 }
