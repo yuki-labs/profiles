@@ -5,8 +5,7 @@ import { defaultProfile } from './types.ts';
 
 import ProfilePreview from './components/ProfilePreview.tsx';
 import { Download, Upload, RefreshCcw, Share2, Copy, X, Globe, Settings, Activity, Plus, Trash2 } from 'lucide-react';
-import Gun from 'gun';
-import 'gun/lib/load'; // Optional but helps with larger objects
+import { shareProfile, viewProfile, checkRelayHealth, normalizeRelayUrl } from './sync.ts';
 
 declare global {
   interface Window {
@@ -15,15 +14,6 @@ declare global {
     };
   }
 }
-
-// Initialize Gun without default relays for maximum privacy
-const gun = Gun({
-  peers: [],
-  retry: 3000,
-  localStorage: false
-});
-const profiles = gun.get('profile-maker-p2p-v2');
-
 
 function App() {
   const [profile, setProfile] = useState<ProfileData>(() => {
@@ -39,21 +29,14 @@ function App() {
     const saved = localStorage.getItem('p2p_peers');
     return saved ? JSON.parse(saved) : [];
   });
-  const [activePeers, setActivePeers] = useState<string[]>(customPeers);
+  const [activePeers, setActivePeers] = useState<string[]>([]);
 
   const customPeersRef = useRef<string[]>(customPeers);
-  const removedPeersRef = useRef<Set<string>>(new Set());
+  const shareCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     customPeersRef.current = customPeers;
   }, [customPeers]);
-
-  // Initial peer load on mount
-  useEffect(() => {
-    if (customPeers.length > 0) {
-      gun.opt({ peers: customPeers });
-    }
-  }, []);
 
   const [viewId, setViewId] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -62,71 +45,50 @@ function App() {
   const [viewData, setViewData] = useState<ProfileData | null>(null);
   const [isViewing, setIsViewing] = useState(false);
 
+  // Persist profile to localStorage
   useEffect(() => {
     localStorage.setItem('profile_maker_data', JSON.stringify(profile));
   }, [profile]);
 
+  // View a shared profile via Y.js
   useEffect(() => {
     if (viewId) {
       setIsViewing(true);
       setViewData(null);
 
-      console.log(`Searching for P2P profile: ${viewId}`);
+      console.log(`Loading shared profile: ${viewId}`);
 
-      let found = false;
-      const timeout = setTimeout(() => {
-        if (!found) {
-          alert('P2P Profile not found. The network might be slow or the peer is offline.');
+      // Need at least one relay to fetch from
+      const relayUrl = customPeersRef.current[0];
+      if (!relayUrl) {
+        alert('No relay configured. Please add a relay URL in Settings to view shared profiles.');
+        setIsViewing(false);
+        setViewId(null);
+        return;
+      }
+
+      const { cleanup } = viewProfile(
+        viewId,
+        relayUrl,
+        (profileData) => {
+          console.log('Profile data received!');
+          setViewData(profileData);
+          setIsViewing(false);
+        },
+        () => {
+          alert('Profile not found. The relay might be unreachable or the profile has expired.');
           setIsViewing(false);
           setViewId(null);
         }
-      }, 15000); // Wait 15 seconds for decentralized discovery
+      );
 
-      // Use .on() instead of .once() as it's more reliable for gossip data that arrives late
-      profiles.get(viewId).on((data: any) => {
-        if (data && data.data) {
-          // v2 format: JSON-serialized profile
-          try {
-            const parsed = JSON.parse(data.data);
-            console.log("Profile data found (v2)!");
-            found = true;
-            clearTimeout(timeout);
-            setViewData(parsed as ProfileData);
-            setIsViewing(false);
-          } catch (e) {
-            console.error('Failed to parse profile data:', e);
-          }
-        } else if (data && (data.name || data.bio)) {
-          // v1 legacy format fallback (flat object, may be missing arrays)
-          console.log("Profile data found (v1 legacy)!");
-          found = true;
-          clearTimeout(timeout);
-          // Ensure arrays exist even if Gun dropped them
-          const legacyData = {
-            ...data,
-            socials: data.socials || [],
-            skills: data.skills || [],
-            theme: data.theme || { primaryColor: '#6366f1', darkMode: true }
-          };
-          setViewData(legacyData as ProfileData);
-          setIsViewing(false);
-        }
-      });
-
-      return () => {
-        clearTimeout(timeout);
-        // Note: gun .off() is sometimes buggy in certain versions, 
-        // but it's good practice to prevent memory leaks if possible.
-        try { profiles.get(viewId).off(); } catch (e) { }
-      };
+      return cleanup;
     }
   }, [viewId]);
 
+  // Peer health check
   useEffect(() => {
-    // 1. Peer status check via direct HTTP health check
-    // Gun's internal peer state (enabled/wire) is unreliable and often undefined
-    // even when data is flowing. Instead, we ping relay URLs directly.
-    const checkPeerHealth = async () => {
+    const checkHealth = async () => {
       const currentPeers = customPeersRef.current;
       if (currentPeers.length === 0) {
         setActivePeers([]);
@@ -135,62 +97,21 @@ function App() {
 
       const results = await Promise.all(
         currentPeers.map(async (peerUrl) => {
-          try {
-            // Strip /gun suffix if present and fetch the base URL
-            const baseUrl = peerUrl.replace(/\/gun\/?$/, '');
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 4000);
-            await fetch(baseUrl, {
-              method: 'HEAD',
-              mode: 'no-cors', // Railway may not send CORS for HEAD
-              signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-            // no-cors gives opaque response (status 0), but that means it's reachable
-            return peerUrl;
-          } catch {
-            return null;
-          }
+          const isAlive = await checkRelayHealth(peerUrl);
+          return isAlive ? peerUrl : null;
         })
       );
 
       setActivePeers(results.filter((url): url is string => url !== null));
     };
 
-    checkPeerHealth();
-    const interval = setInterval(checkPeerHealth, 10000);
-
-    // 2. Conditional Auto-Discovery (only if user has already added a relay)
-    const discoveryBucket = gun.get('profile-maker-discovery').get('relays');
-    discoveryBucket.map().on((node: any, urlKey: string) => {
-      // Use the ref to get latest state inside the callback
-      const currentPeers = customPeersRef.current;
-      const removedPeers = removedPeersRef.current;
-
-      // ONLY auto-discover if the user has opted-in by adding at least one manual relay
-      if (currentPeers.length === 0) return;
-
-      const url = (node && typeof node === 'object' && node.url) ? node.url : urlKey;
-      const lastSeen = (node && typeof node === 'object' && node.lastSeen) ? node.lastSeen : (typeof node === 'number' ? node : 0);
-
-      if (url && (url.startsWith('http') || url.startsWith('ws')) && !currentPeers.includes(url) && !removedPeers.has(url)) {
-        // Validation: Seen in the last 30 minutes
-        const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
-        if (lastSeen > thirtyMinutesAgo) {
-          console.log(`Auto-discovered node: ${url}`);
-          const newPeers = [...currentPeers, url];
-          setCustomPeers(newPeers);
-          localStorage.setItem('p2p_peers', JSON.stringify(newPeers));
-          gun.opt({ peers: [url] });
-        }
-      }
-    });
-
+    checkHealth();
+    const interval = setInterval(checkHealth, 10000);
     return () => clearInterval(interval);
   }, []);
 
+  // Handle deep links from Electron
   useEffect(() => {
-    // 3. Handle deep links from Electron
     if (window.electronAPI) {
       window.electronAPI.onOpenProfile((id: string) => {
         console.log('Deep link received:', id);
@@ -200,15 +121,14 @@ function App() {
   }, []);
 
   const addCustomPeer = () => {
-    const url = newPeerUrl.trim();
-    if (url && url.startsWith('http') && !customPeers.includes(url)) {
+    const url = normalizeRelayUrl(newPeerUrl);
+    if (url && (url.startsWith('http') || url.startsWith('ws')) && !customPeers.includes(url)) {
       const newPeers = [...customPeers, url];
       setCustomPeers(newPeers);
       localStorage.setItem('p2p_peers', JSON.stringify(newPeers));
-      gun.opt({ peers: [url] });
       setNewPeerUrl('');
     } else if (url) {
-      alert('Please enter a valid HTTP(S) URL.');
+      alert('Please enter a valid HTTP(S) or WS(S) URL.');
     }
   };
 
@@ -216,17 +136,6 @@ function App() {
     const newPeers = customPeers.filter(p => p !== url);
     setCustomPeers(newPeers);
     localStorage.setItem('p2p_peers', JSON.stringify(newPeers));
-
-    // Remember this peer was explicitly removed so we don't auto-add it again
-    removedPeersRef.current.add(url);
-
-    // Disable it in Gun
-    // @ts-ignore
-    const peers = gun.back('opt.peers');
-    if (peers && peers[url]) {
-      peers[url].enabled = false;
-      if (peers[url].wire) peers[url].wire.close();
-    }
   };
 
   const handleExport = () => {
@@ -261,49 +170,34 @@ function App() {
   };
 
   const handleShare = async () => {
+    if (customPeers.length === 0) {
+      alert('No relay configured. Please add a relay URL in Settings first.');
+      return;
+    }
+
     setIsSharing(true);
     setSyncStatus('syncing');
+
+    // Clean up any previous share connection
+    if (shareCleanupRef.current) {
+      shareCleanupRef.current();
+      shareCleanupRef.current = null;
+    }
+
     try {
-      // Create a unique P2P ID for this profile
-      const id = 'p2p-' + Math.random().toString(36).substr(2, 9);
+      const relayUrl = customPeers[0]; // Use first configured relay
+      const { roomId, cleanup } = await shareProfile(profile, relayUrl);
+      shareCleanupRef.current = cleanup;
 
-      // Serialize the entire profile as JSON to avoid GunDB
-      // silently dropping arrays and nested objects
-      const payload = {
-        data: JSON.stringify(profile),
-        updatedAt: Date.now()
-      };
+      setSyncStatus('synced');
 
-      // Put with acknowledgment to confirm sync
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          // Even if no ack, data may still propagate — don't block
-          console.warn('GunDB put() timed out waiting for ack, but data may still sync.');
-          setSyncStatus('synced');
-          resolve();
-        }, 5000);
-
-        profiles.get(id).put(payload, (ack: any) => {
-          clearTimeout(timeout);
-          if (ack.err) {
-            console.error('GunDB put() error:', ack.err);
-            setSyncStatus('error');
-            reject(new Error(ack.err));
-          } else {
-            console.log('GunDB put() acknowledged successfully');
-            setSyncStatus('synced');
-            resolve();
-          }
-        });
-      });
-
-      const shareUrl = `${window.location.origin}${window.location.pathname}?view=${id}`;
-      const deepLink = `profilemaker://${id}`;
-      setShareData({ id, shareUrl, deepLink });
+      const shareUrl = `${window.location.origin}${window.location.pathname}?view=${roomId}`;
+      const deepLink = `profilemaker://${roomId}`;
+      setShareData({ id: roomId, shareUrl, deepLink });
     } catch (err) {
       console.error('Share failed:', err);
       setSyncStatus('error');
-      alert('P2P Share failed. The relay may be unreachable. Please check your connection settings and try again.');
+      alert('Share failed. The relay may be unreachable. Please check your relay settings and try again.');
     } finally {
       setIsSharing(false);
     }
@@ -337,7 +231,7 @@ function App() {
           ) : (
             <div className="loading-state">
               <div className="pulse-spark">✨</div>
-              <p>{isViewing ? 'Searching the P2P network...' : 'Profile not found'}</p>
+              <p>{isViewing ? 'Connecting to relay...' : 'Profile not found'}</p>
             </div>
           )}
         </main>
@@ -351,7 +245,7 @@ function App() {
         <div className="connection-banner">
           <div className="banner-content">
             <Globe size={16} />
-            <span>P2P Offline: No relays configured. You won't be able to search or share profiles.</span>
+            <span>Offline: No relays configured. You won't be able to share or view profiles.</span>
             <button className="btn-link" onClick={() => setShowSettings(true)}>Setup Relay Now</button>
           </div>
         </div>
@@ -408,16 +302,16 @@ function App() {
 
               <div className="share-field">
                 <div className="section-header-inline">
-                  <label><Activity size={14} /> P2P Relay Peers</label>
+                  <label><Activity size={14} /> Relay Servers</label>
                 </div>
                 <div className="input-with-action" style={{ marginBottom: '1rem' }}>
                   <input
                     value={newPeerUrl}
                     onChange={(e) => setNewPeerUrl(e.target.value)}
-                    placeholder="http://peer-url:port/gun"
+                    placeholder="https://your-relay.example.com"
                     onKeyDown={(e) => e.key === 'Enter' && addCustomPeer()}
                   />
-                  <button className="btn btn-primary" onClick={addCustomPeer} title="Add Peer">
+                  <button className="btn btn-primary" onClick={addCustomPeer} title="Add Relay">
                     <Plus size={16} />
                     <span>Add</span>
                   </button>
@@ -441,7 +335,7 @@ function App() {
               </div>
 
               <div className="tip">
-                🌐 GunDB is automatically syncing with {activePeers.length} relay(s).
+                🌐 Connected to {activePeers.length} of {customPeers.length} relay(s).
               </div>
             </div>
           </div>

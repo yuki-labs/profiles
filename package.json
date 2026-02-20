@@ -13,18 +13,21 @@
     "electron:build": "npm run build && electron-builder",
     "server": "node server/index.cjs",
     "hosting:desktop": "electron relay/electron/main.cjs",
-    "hosting:railway": "node relay/server.cjs"
+    "hosting:railway": "node relay/server.mjs"
   },
   "dependencies": {
+    "@y/websocket-server": "^0.1.5",
     "cors": "^2.8.6",
     "dotenv": "^17.2.4",
     "express": "^5.2.1",
     "framer-motion": "^12.33.0",
-    "gun": "^0.2020.1241",
     "lucide-react": "^0.563.0",
     "nanoid": "^5.1.6",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "ws": "^8.19.0",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.29"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
