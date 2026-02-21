@@ -33,6 +33,10 @@ function baseStyles(theme) {
             box-shadow: 0 10px 25px rgba(0,0,0,0.3);
             max-width: 440px;
             width: 100%;
+            transition: opacity 0.3s ease;
+        }
+        .embed-container.updating {
+            opacity: 0.85;
         }
     `;
 }
@@ -173,9 +177,6 @@ const ALL_ELEMENTS = ['avatar', 'name', 'title', 'bio', 'contact', 'skills', 'so
 
 /**
  * Render selected profile elements as an HTML fragment.
- * @param {object} profile - Profile data
- * @param {string[]} showElements - Elements to render (empty = all)
- * @returns {string} HTML
  */
 export function renderElements(profile, showElements) {
     const elements = showElements.length > 0 ? showElements : ALL_ELEMENTS;
@@ -202,10 +203,133 @@ export function renderElements(profile, showElements) {
 }
 
 /**
- * Generate a complete self-contained HTML embed page.
+ * Generate the inline <script> for SSE-based live updates.
  */
-export function renderPage(profile, showElements) {
+function liveUpdateScript(profileId, baseUrl) {
+    // Escape for embedding in HTML
+    const safeId = profileId.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const safeBase = baseUrl.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+    return `
+<script>
+(function() {
+    var profileId = '${safeId}';
+    var baseUrl = '${safeBase}'.replace(/\\/+$/, '');
+    var container = document.querySelector('.embed-container');
+    var retryDelay = 1000;
+    var maxRetry = 30000;
+
+    function escapeHtml(s) {
+        if (!s) return '';
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function renderAvatar(p) {
+        if (p.avatar) return '<img class="el-avatar" src="' + escapeHtml(p.avatar) + '" alt="' + escapeHtml(p.name) + '" />';
+        return '<div class="el-avatar el-avatar-placeholder">' + (p.name || '?').charAt(0) + '</div>';
+    }
+
+    function renderHeader(p, els) {
+        var html = '';
+        if (els.indexOf('avatar') !== -1) html += renderAvatar(p);
+        if (els.indexOf('name') !== -1) html += '<h1 class="el-name">' + (escapeHtml(p.name) || 'Unnamed') + '</h1>';
+        if (els.indexOf('title') !== -1) html += '<p class="el-title">' + (escapeHtml(p.title) || '') + '</p>';
+        return html ? '<div class="el-header">' + html + '</div>' : '';
+    }
+
+    function renderBody(p, els) {
+        var html = '';
+        if (els.indexOf('bio') !== -1 && p.bio) html += '<div class="el-section"><p class="el-bio">' + escapeHtml(p.bio) + '</p></div>';
+        if (els.indexOf('contact') !== -1) {
+            var c = '';
+            if (p.location) c += '<div class="el-meta-item">📍 ' + escapeHtml(p.location) + '</div>';
+            if (p.email) c += '<div class="el-meta-item">✉️ ' + escapeHtml(p.email) + '</div>';
+            if (p.website) c += '<div class="el-meta-item">🌐 <a href="' + escapeHtml(p.website) + '" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">' + escapeHtml(p.website.replace(/^https?:\\/\\//, '')) + '</a></div>';
+            if (c) html += '<div class="el-section"><div class="el-contact">' + c + '</div></div>';
+        }
+        if (els.indexOf('skills') !== -1 && p.skills && p.skills.length) {
+            var tags = p.skills.map(function(s) { return '<span class="el-skill">' + escapeHtml(s) + '</span>'; }).join('');
+            html += '<div class="el-section"><div class="el-skills">' + tags + '</div></div>';
+        }
+        if (els.indexOf('socials') !== -1 && p.socials && p.socials.length) {
+            var links = p.socials.map(function(s) { return '<a class="el-social-btn" href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(s.platform) + '</a>'; }).join('');
+            html += '<div class="el-section"><div class="el-socials">' + links + '</div></div>';
+        }
+        return html;
+    }
+
+    // Determine which elements to show from the URL query
+    var showParam = new URLSearchParams(window.location.search).get('show');
+    var showEls = showParam ? showParam.split(',').map(function(e) { return e.trim().toLowerCase(); }) : ['avatar','name','title','bio','contact','skills','socials'];
+
+    function updateEmbed(profile) {
+        if (!container) return;
+
+        // Update CSS custom property if theme changed
+        if (profile.theme && profile.theme.primaryColor) {
+            document.documentElement.style.setProperty('--primary', profile.theme.primaryColor);
+        }
+
+        container.classList.add('updating');
+        setTimeout(function() {
+            var headerEls = showEls.filter(function(e) { return ['avatar','name','title'].indexOf(e) !== -1; });
+            var bodyEls = showEls.filter(function(e) { return ['avatar','name','title'].indexOf(e) === -1; });
+            container.innerHTML = renderHeader(profile, headerEls) + renderBody(profile, bodyEls);
+            container.classList.remove('updating');
+        }, 150);
+    }
+
+    function connect() {
+        var url = baseUrl + '/subscribe/' + encodeURIComponent(profileId);
+        var es = new EventSource(url);
+
+        es.addEventListener('update', function(e) {
+            try {
+                var profile = JSON.parse(e.data);
+                updateEmbed(profile);
+                retryDelay = 1000; // reset on success
+            } catch (err) {
+                console.error('[embed] Failed to parse update:', err);
+            }
+        });
+
+        es.onerror = function() {
+            es.close();
+            console.warn('[embed] SSE connection lost, retrying in ' + retryDelay + 'ms');
+            setTimeout(connect, retryDelay);
+            retryDelay = Math.min(retryDelay * 2, maxRetry);
+        };
+    }
+
+    if (typeof EventSource !== 'undefined') {
+        connect();
+    } else {
+        // Fallback: poll every 30s
+        setInterval(function() {
+            fetch(baseUrl + '/api/profile/' + encodeURIComponent(profileId))
+                .then(function(r) { return r.json(); })
+                .then(function(p) { if (p && !p.error) updateEmbed(p); })
+                .catch(function() {});
+        }, 30000);
+    }
+})();
+</script>`;
+}
+
+/**
+ * Generate a complete self-contained HTML embed page.
+ * @param {object} profile - Profile data
+ * @param {string[]} showElements - Elements to render (empty = all)
+ * @param {object} [liveOpts] - { profileId, baseUrl } for live updates
+ */
+export function renderPage(profile, showElements, liveOpts) {
     const content = renderElements(profile, showElements);
+    const liveScript = liveOpts?.profileId && liveOpts?.baseUrl
+        ? liveUpdateScript(liveOpts.profileId, liveOpts.baseUrl)
+        : '';
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -216,6 +340,7 @@ export function renderPage(profile, showElements) {
 </head>
 <body>
     <div class="embed-container">${content}</div>
+    ${liveScript}
 </body>
 </html>`;
 }

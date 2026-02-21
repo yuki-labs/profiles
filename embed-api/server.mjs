@@ -1,5 +1,5 @@
 import http from 'http';
-import { getProfile, filterProfile, toProfileId, checkRelayHealth } from './profile-store.mjs';
+import { getProfile, filterProfile, toProfileId, checkRelayHealth, subscribe, getSubscriptionStats } from './profile-store.mjs';
 import { renderPage, renderErrorPage } from './components.mjs';
 import { getSdkSource } from './sdk.mjs';
 
@@ -12,16 +12,12 @@ import { getSdkSource } from './sdk.mjs';
  * Routes:
  *   GET /embed/:profileId         → HTML embed page (use ?show=name,skills to select elements)
  *   GET /api/profile/:profileId   → JSON profile data (use ?fields=name,skills for partial)
+ *   GET /subscribe/:profileId     → SSE stream for live profile updates
  *   GET /embed.js                 → JavaScript SDK for <profile-embed> web component
  *   GET /health                   → Server health status + relay connectivity
  *   POST /relays                  → Add a relay URL at runtime (JSON body: { url: "..." })
  *   DELETE /relays                → Remove a relay URL at runtime (JSON body: { url: "..." })
  *   GET /relays                   → List all configured relays and their health
- *
- * Configuration:
- *   RELAY_URLS — Comma-separated list of relay WebSocket/HTTP URLs
- *                e.g. ws://localhost:8765,wss://relay.example.com
- *   RELAY_URL  — Fallback single URL (for backward compatibility)
  */
 
 const PORT = process.env.PORT || 3002;
@@ -71,6 +67,15 @@ function readBody(req) {
     });
 }
 
+/**
+ * Resolve the API base URL from request headers.
+ */
+function getBaseUrl(req) {
+    const proto = req.headers['x-forwarded-proto'] || 'http';
+    const host = req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`;
+    return `${proto}://${host}`;
+}
+
 const server = http.createServer(async (req, res) => {
     setCors(res);
 
@@ -97,6 +102,7 @@ const server = http.createServer(async (req, res) => {
             relays: healthChecks,
             totalRelays: relayUrls.length,
             onlineRelays: healthChecks.filter(r => r.online).length,
+            subscriptions: getSubscriptionStats(),
             uptime: process.uptime(),
             timestamp: Date.now()
         }, null, 2));
@@ -157,10 +163,7 @@ const server = http.createServer(async (req, res) => {
 
     // ── SDK script ──
     if (path === '/embed.js') {
-        const proto = req.headers['x-forwarded-proto'] || 'http';
-        const host = req.headers['x-forwarded-host'] || req.headers.host || `localhost:${PORT}`;
-        const baseUrl = `${proto}://${host}`;
-
+        const baseUrl = getBaseUrl(req);
         res.writeHead(200, {
             'Content-Type': 'application/javascript',
             'Cache-Control': 'public, max-age=3600'
@@ -169,11 +172,70 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    // ── SSE: Live profile updates ──
+    const sseMatch = path.match(/^\/subscribe\/([^\/]+)$/);
+    if (sseMatch && req.method === 'GET') {
+        const profileId = decodeURIComponent(sseMatch[1]);
+
+        if (relayUrls.length === 0) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'No relay nodes configured' }));
+            return;
+        }
+
+        // Set SSE headers
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no', // Disable nginx buffering
+        });
+
+        // Send initial comment to establish connection
+        res.write(':ok\n\n');
+
+        // Subscribe to live updates
+        const onUpdate = (profile) => {
+            if (!res.writableEnded) {
+                res.write(`event: update\ndata: ${JSON.stringify(profile)}\n\n`);
+            }
+        };
+
+        const { unsubscribe, ready } = subscribe(profileId, relayUrls, onUpdate);
+
+        // Send the current profile as the initial event
+        try {
+            const profile = await ready;
+            if (profile && !res.writableEnded) {
+                res.write(`event: update\ndata: ${JSON.stringify(profile)}\n\n`);
+            }
+        } catch (e) {
+            console.error(`[SSE] Initial fetch error for ${profileId}:`, e.message);
+        }
+
+        // Send keepalive pings every 30s to prevent connection timeout
+        const keepalive = setInterval(() => {
+            if (!res.writableEnded) {
+                res.write(':ping\n\n');
+            }
+        }, 30000);
+
+        // Clean up on disconnect
+        req.on('close', () => {
+            clearInterval(keepalive);
+            unsubscribe();
+            console.log(`[SSE] Client disconnected from ${profileId}`);
+        });
+
+        return;
+    }
+
     // ── HTML embed ──
     const embedMatch = path.match(/^\/embed\/([^\/]+)$/);
     if (embedMatch) {
         const profileId = decodeURIComponent(embedMatch[1]);
         const showElements = parseElements(params.get('show'));
+        const baseUrl = getBaseUrl(req);
 
         if (relayUrls.length === 0) {
             res.writeHead(503, { 'Content-Type': 'text/html' });
@@ -191,9 +253,9 @@ const server = http.createServer(async (req, res) => {
 
             res.writeHead(200, {
                 'Content-Type': 'text/html',
-                'Cache-Control': 'public, max-age=60'
+                'Cache-Control': 'no-cache'
             });
-            res.end(renderPage(profile, showElements));
+            res.end(renderPage(profile, showElements, { profileId, baseUrl }));
         } catch (e) {
             console.error('[Server] Embed error:', e);
             res.writeHead(500, { 'Content-Type': 'text/html' });
@@ -225,7 +287,7 @@ const server = http.createServer(async (req, res) => {
             const data = filterProfile(profile, fields);
             res.writeHead(200, {
                 'Content-Type': 'application/json',
-                'Cache-Control': 'public, max-age=60'
+                'Cache-Control': 'no-cache'
             });
             res.end(JSON.stringify(data, null, 2));
         } catch (e) {
@@ -248,23 +310,29 @@ const server = http.createServer(async (req, res) => {
     a { color: #818cf8; }
     .endpoint { margin: 12px 0; }
     .note { color: #94a3b8; font-size: 13px; margin-top: 8px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-right: 6px; }
+    .badge-new { background: #22c55e22; color: #4ade80; }
 </style></head><body>
     <h1>📦 Profii Embed API</h1>
     <p>Multi-node network client for embedding live profiles.</p>
     <p class="note">Connected to <strong>${relayUrls.length}</strong> relay node(s).</p>
 
     <h2>Profile Endpoints</h2>
-    <div class="endpoint"><code>GET /embed/:profileId</code> — HTML embed page</div>
+    <div class="endpoint"><code>GET /embed/:profileId</code> — HTML embed page (auto-updates via SSE)</div>
     <div class="endpoint"><code>GET /embed/:profileId?show=name,skills</code> — Select elements</div>
     <div class="endpoint"><code>GET /api/profile/:profileId</code> — Raw JSON</div>
     <div class="endpoint"><code>GET /api/profile/:profileId?fields=name,skills</code> — Partial JSON</div>
     <p class="note">Searches all configured relay nodes in parallel to locate the profile.</p>
 
+    <h2>Live Updates <span class="badge badge-new">NEW</span></h2>
+    <div class="endpoint"><code>GET /subscribe/:profileId</code> — SSE event stream for real-time profile updates</div>
+    <p class="note">Embeds automatically subscribe to live updates. Profile changes propagate in real-time.</p>
+
     <h2>Network Management</h2>
     <div class="endpoint"><code>GET /relays</code> — List relay nodes + health</div>
     <div class="endpoint"><code>POST /relays</code> — Add a relay <code>{ "url": "ws://..." }</code></div>
     <div class="endpoint"><code>DELETE /relays</code> — Remove a relay <code>{ "url": "ws://..." }</code></div>
-    <div class="endpoint"><code>GET /health</code> — Server + relay health</div>
+    <div class="endpoint"><code>GET /health</code> — Server + relay health + active subscriptions</div>
 
     <h2>SDK</h2>
     <div class="endpoint"><code>GET /embed.js</code> — JavaScript SDK</div>
@@ -289,6 +357,7 @@ server.listen(PORT, HOST, () => {
     console.log(`\n📦 Embed API listening on http://${HOST}:${PORT}`);
     console.log(`   Relay nodes: ${relayUrls.length}`);
     relayUrls.forEach((url, i) => console.log(`     ${i + 1}. ${url}`));
+    console.log(`   Live updates: SSE on /subscribe/:profileId`);
     console.log(`   Docs: http://localhost:${PORT}/`);
     console.log('');
 });
