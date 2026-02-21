@@ -2,7 +2,7 @@
  * Returns the JavaScript source for the <profile-embed> Web Component.
  * Developers include this via <script src="/embed.js">.
  *
- * The Web Component fetches rendered HTML from the embed API server,
+ * The Web Component fetches rendered HTML from the embed service,
  * then opens an SSE connection for live updates.
  *
  * Usage:

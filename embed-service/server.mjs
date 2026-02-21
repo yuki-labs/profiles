@@ -4,7 +4,7 @@ import { renderPage, renderErrorPage } from './components.mjs';
 import { getSdkSource } from './sdk.mjs';
 
 /**
- * Standalone Embed API Server — Multi-Node Network Client
+ * Standalone Embed Service — Multi-Node Network Client
  *
  * This server acts as its own node on the Y.js network, connecting to
  * one or more relay servers to locate and serve profile data.
@@ -301,7 +301,7 @@ const server = http.createServer(async (req, res) => {
     // ── Default: API docs ──
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(`<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Profii Embed API</title>
+<html><head><meta charset="UTF-8"><title>Profii Embed Service</title>
 <style>
     body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #f8fafc; padding: 40px; max-width: 700px; margin: auto; }
     h1 { color: #818cf8; } h2 { color: #6366f1; margin-top: 2em; }
@@ -313,7 +313,7 @@ const server = http.createServer(async (req, res) => {
     .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-right: 6px; }
     .badge-new { background: #22c55e22; color: #4ade80; }
 </style></head><body>
-    <h1>📦 Profii Embed API</h1>
+    <h1>📦 Profii Embed Service</h1>
     <p>Multi-node network client for embedding live profiles.</p>
     <p class="note">Connected to <strong>${relayUrls.length}</strong> relay node(s).</p>
 
@@ -354,7 +354,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-    console.log(`\n📦 Embed API listening on http://${HOST}:${PORT}`);
+    console.log(`\n📦 Embed Service listening on http://${HOST}:${PORT}`);
     console.log(`   Relay nodes: ${relayUrls.length}`);
     relayUrls.forEach((url, i) => console.log(`     ${i + 1}. ${url}`));
     console.log(`   Live updates: SSE on /subscribe/:profileId`);

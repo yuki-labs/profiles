@@ -11,23 +11,23 @@ A decentralized, **Peer-to-Peer** profile creation and hosting platform. Create 
 - **WYSIWYG Editor**: Direct-on-card editing with live preview.
 - **Portable Desktop App**: Built with Electron for a native, distraction-free experience.
 - **One-Click Sharing**: Generate P2P links that anyone can view using the built-in Viewer Mode.
-- **Embed API**: Standalone service that lets third-party developers embed profile components on any website.
+- **Embed Service**: Standalone service that lets third-party developers embed profile components on any website.
 
-## 📦 Embed API
+## 📦 Embed Service
 
-The Embed API is a standalone Node.js service that joins the relay network, caches profiles locally, and serves embeddable profile components to developers.
+The Embed Service is a standalone Node.js service that joins the relay network, caches profiles locally, and serves embeddable profile components to developers.
 
-### Running the Embed API
+### Running the Embed Service
 
 ```bash
 # Start the relay
 npm run hosting:railway
 
-# Start the embed API (separate terminal)
+# Start the embed service (separate terminal)
 RELAY_URL=ws://localhost:8765 npm run embed
 ```
 
-The API runs on port `3002` by default. Visit `http://localhost:3002/` for interactive docs.
+The service runs on port `3002` by default. Visit `http://localhost:3002/` for interactive docs.
 
 ### Endpoints
 
@@ -52,18 +52,18 @@ Omit the parameter to include everything.
 
 ```html
 <!-- Full profile card -->
-<iframe src="https://your-embed-api.com/embed/profile-abc123"
+<iframe src="https://your-embed-service.com/embed/profile-abc123"
         width="440" height="600" frameborder="0"></iframe>
 
 <!-- Only avatar, name, and skills -->
-<iframe src="https://your-embed-api.com/embed/profile-abc123?show=avatar,name,skills"
+<iframe src="https://your-embed-service.com/embed/profile-abc123?show=avatar,name,skills"
         width="440" height="300" frameborder="0"></iframe>
 ```
 
 ### Integration: JavaScript SDK
 
 ```html
-<script src="https://your-embed-api.com/embed.js"></script>
+<script src="https://your-embed-service.com/embed.js"></script>
 
 <!-- Full card -->
 <profile-embed room="profile-abc123"></profile-embed>
@@ -76,15 +76,15 @@ Omit the parameter to include everything.
 
 ```bash
 # Full profile
-curl https://your-embed-api.com/api/profile/profile-abc123
+curl https://your-embed-service.com/api/profile/profile-abc123
 
 # Partial (only name and skills)
-curl https://your-embed-api.com/api/profile/profile-abc123?fields=name,skills
+curl https://your-embed-service.com/api/profile/profile-abc123?fields=name,skills
 ```
 
 ### Deploying
 
-Deploy the embed API as a separate service (e.g., a second Railway app). Set these environment variables:
+Deploy the embed service as a separate service (e.g., a second Railway app). Set these environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|

@@ -14,7 +14,7 @@
     "server": "node server/index.cjs",
     "hosting:desktop": "electron relay/electron/main.cjs",
     "hosting:railway": "node relay/server.mjs",
-    "embed": "node embed-api/server.mjs"
+    "embed": "node embed-service/server.mjs"
   },
   "dependencies": {
     "@y/websocket-server": "^0.1.5",
