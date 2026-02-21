@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import type { ProfileData } from './types.ts';
 import { defaultProfile } from './types.ts';
-import { ensureProfileId, generateProfileId } from './profileId.ts';
+import { ensureProfileId } from './profileId.ts';
 
 import ProfilePreview from './components/ProfilePreview.tsx';
 import { Download, Upload, RefreshCcw, Share2, Copy, X, Globe, Settings, Activity, Plus, Trash2, KeyRound } from 'lucide-react';
@@ -173,12 +173,6 @@ function App() {
     }
   };
 
-  const regenerateId = () => {
-    if (confirm('Regenerate your profile ID? This creates a new network identity — your old ID will no longer resolve to this profile.')) {
-      setProfile(prev => ({ ...prev, id: generateProfileId() }));
-    }
-  };
-
   const handleShare = async () => {
     if (customPeers.length === 0) {
       alert('No relay configured. Please add a relay URL in Settings first.');
@@ -313,21 +307,6 @@ function App() {
 
               <div className="share-field">
                 <div className="section-header-inline">
-                  <label><KeyRound size={14} /> Profile Identity</label>
-                </div>
-                <div className="input-with-action">
-                  <input readOnly value={profile.id} />
-                  <button className="btn btn-secondary" onClick={regenerateId} title="Regenerate ID">
-                    <RefreshCcw size={16} />
-                  </button>
-                </div>
-                <div className="tip" style={{ marginTop: '0.5rem' }}>
-                  🆔 Your unique network address. Viewers use this to find your profile.
-                </div>
-              </div>
-
-              <div className="share-field">
-                <div className="section-header-inline">
                   <label><Activity size={14} /> Relay Servers</label>
                 </div>
                 <div className="input-with-action" style={{ marginBottom: '1rem' }}>
@@ -383,6 +362,20 @@ function App() {
                 {syncStatus === 'synced' && '✅ Synced to relay'}
                 {syncStatus === 'error' && '❌ Sync failed — check relay connection'}
                 {syncStatus === 'idle' && ''}
+              </div>
+
+              <div className="share-field">
+                <label><KeyRound size={14} /> Profile Identity</label>
+                <div className="input-with-action">
+                  <input readOnly value={profile.id} />
+                  <button onClick={() => {
+                    navigator.clipboard.writeText(profile.id);
+                    alert('Profile ID copied!');
+                  }}><Copy size={16} /></button>
+                </div>
+                <div className="tip" style={{ marginTop: '0.5rem' }}>
+                  🆔 Your unique network address. Viewers use this to find your profile.
+                </div>
               </div>
 
               <div className="share-field">
