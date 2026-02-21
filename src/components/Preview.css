@@ -293,3 +293,51 @@
     letter-spacing: 0.15em;
     color: var(--text-muted);
 }
+
+/* Profile ID Footer */
+.card-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 2.5rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid var(--glass-border);
+}
+
+.profile-id-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-muted);
+    font-weight: 700;
+    opacity: 0.6;
+}
+
+.profile-id-value {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.btn-copy-id {
+    background: none;
+    border: 1px solid var(--glass-border);
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-copy-id:hover {
+    background: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
+}

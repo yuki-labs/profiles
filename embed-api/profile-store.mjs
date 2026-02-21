@@ -153,6 +153,7 @@ export function filterProfile(profile, fields) {
 
     const filtered = {};
     const fieldMap = {
+        id: ['id'],
         avatar: ['avatar'],
         name: ['name'],
         title: ['title'],

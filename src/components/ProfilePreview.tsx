@@ -245,6 +245,22 @@ const ProfilePreview: React.FC<Props> = ({ profile, setProfile, readonly = false
                         </div>
                     </div>
                 </div>
+
+                {profile.id && (
+                    <div className="card-footer">
+                        <span className="profile-id-label">ID</span>
+                        <code className="profile-id-value">{profile.id}</code>
+                        <button
+                            className="btn-copy-id"
+                            onClick={() => {
+                                navigator.clipboard.writeText(profile.id);
+                            }}
+                            title="Copy profile ID"
+                        >
+                            Copy
+                        </button>
+                    </div>
+                )}
             </motion.div>
         </div>
     );

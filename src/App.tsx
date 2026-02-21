@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import type { ProfileData } from './types.ts';
 import { defaultProfile } from './types.ts';
+import { ensureProfileId, generateProfileId } from './profileId.ts';
 
 import ProfilePreview from './components/ProfilePreview.tsx';
-import { Download, Upload, RefreshCcw, Share2, Copy, X, Globe, Settings, Activity, Plus, Trash2 } from 'lucide-react';
+import { Download, Upload, RefreshCcw, Share2, Copy, X, Globe, Settings, Activity, Plus, Trash2, KeyRound } from 'lucide-react';
 import { shareProfile, viewProfile, checkRelayHealth, normalizeRelayUrl } from './sync.ts';
 
 declare global {
@@ -18,9 +19,10 @@ declare global {
 function App() {
   const [profile, setProfile] = useState<ProfileData>(() => {
     const saved = localStorage.getItem('profile_maker_data');
-    return saved ? JSON.parse(saved) : defaultProfile;
+    const loaded = saved ? JSON.parse(saved) : defaultProfile;
+    return ensureProfileId(loaded);
   });
-  const [shareData, setShareData] = useState<{ id: string, shareUrl: string, deepLink: string } | null>(null);
+  const [shareData, setShareData] = useState<{ shareUrl: string, deepLink: string } | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
   const [showSettings, setShowSettings] = useState(false);
@@ -155,7 +157,8 @@ function App() {
     reader.onload = (event) => {
       try {
         const data = JSON.parse(event.target?.result as string);
-        setProfile(data);
+        // Preserve existing profile ID — imported data gets our identity
+        setProfile(prev => ({ ...data, id: prev.id }));
       } catch (err) {
         alert('Invalid JSON file');
       }
@@ -165,7 +168,14 @@ function App() {
 
   const resetProfile = () => {
     if (confirm('Are you sure you want to reset your profile?')) {
-      setProfile(defaultProfile);
+      // Keep the existing ID so the network address stays stable
+      setProfile(prev => ({ ...defaultProfile, id: prev.id }));
+    }
+  };
+
+  const regenerateId = () => {
+    if (confirm('Regenerate your profile ID? This creates a new network identity — your old ID will no longer resolve to this profile.')) {
+      setProfile(prev => ({ ...prev, id: generateProfileId() }));
     }
   };
 
@@ -186,14 +196,15 @@ function App() {
 
     try {
       const relayUrl = customPeers[0]; // Use first configured relay
-      const { roomId, cleanup } = await shareProfile(profile, relayUrl);
+      const { cleanup } = await shareProfile(profile, relayUrl);
       shareCleanupRef.current = cleanup;
 
       setSyncStatus('synced');
 
+      const roomId = `profile-${profile.id}`;
       const shareUrl = `${window.location.origin}${window.location.pathname}?view=${roomId}`;
       const deepLink = `profilemaker://${roomId}`;
-      setShareData({ id: roomId, shareUrl, deepLink });
+      setShareData({ shareUrl, deepLink });
     } catch (err) {
       console.error('Share failed:', err);
       setSyncStatus('error');
@@ -297,6 +308,21 @@ function App() {
                     onChange={(e) => setProfile(prev => ({ ...prev, appName: e.target.value }))}
                     placeholder="e.g. My Profile"
                   />
+                </div>
+              </div>
+
+              <div className="share-field">
+                <div className="section-header-inline">
+                  <label><KeyRound size={14} /> Profile Identity</label>
+                </div>
+                <div className="input-with-action">
+                  <input readOnly value={profile.id} />
+                  <button className="btn btn-secondary" onClick={regenerateId} title="Regenerate ID">
+                    <RefreshCcw size={16} />
+                  </button>
+                </div>
+                <div className="tip" style={{ marginTop: '0.5rem' }}>
+                  🆔 Your unique network address. Viewers use this to find your profile.
                 </div>
               </div>
 

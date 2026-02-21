@@ -1,4 +1,5 @@
 export interface ProfileData {
+    id: string;
     name: string;
     title: string;
     bio: string;
@@ -19,6 +20,7 @@ export interface ProfileData {
 }
 
 export const defaultProfile: ProfileData = {
+    id: '',
     name: '',
     title: '',
     bio: '',

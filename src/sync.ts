@@ -36,12 +36,12 @@ export function normalizeRelayUrl(url: string): string {
 }
 
 export interface ShareResult {
-    roomId: string;
     cleanup: () => void;
 }
 
 /**
  * Share a profile via the Y.js relay.
+ * Uses the profile's own ID as the room name, making it permanently addressable.
  * Creates a Y.Doc, stores the profile data, and connects to the relay.
  * Returns once the initial sync is complete or times out.
  */
@@ -50,7 +50,12 @@ export function shareProfile(
     relayUrl: string
 ): Promise<ShareResult> {
     return new Promise((resolve, reject) => {
-        const roomId = ROOM_PREFIX + Math.random().toString(36).substring(2, 11);
+        if (!profile.id) {
+            reject(new Error('Profile must have an ID before sharing'));
+            return;
+        }
+
+        const roomId = ROOM_PREFIX + profile.id;
         const doc = new Y.Doc();
         const profileMap = doc.getMap('profile');
 
@@ -69,7 +74,7 @@ export function shareProfile(
             // If we haven't synced in 8s, resolve anyway — data is in the doc
             // and will sync when the connection is established
             console.warn('[Y.js] Share timed out waiting for sync, but doc is ready');
-            resolve({ roomId, cleanup });
+            resolve({ cleanup });
         }, 8000);
 
         const cleanup = () => {
@@ -82,7 +87,7 @@ export function shareProfile(
             if (synced) {
                 clearTimeout(timeoutId);
                 console.log('[Y.js] Profile shared and synced to relay');
-                resolve({ roomId, cleanup });
+                resolve({ cleanup });
             }
         });
 
