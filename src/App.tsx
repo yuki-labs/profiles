@@ -184,12 +184,6 @@ function App() {
     setIsSharing(true);
     setSyncStatus('syncing');
 
-    // Clean up any previous share connection
-    if (shareCleanupRef.current) {
-      shareCleanupRef.current();
-      shareCleanupRef.current = null;
-    }
-
     try {
       const relayUrl = customPeers[0]; // Use first configured relay
       const { cleanup } = await shareProfile(profile, relayUrl);
