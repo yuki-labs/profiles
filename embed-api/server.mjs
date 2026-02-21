@@ -1,24 +1,43 @@
 import http from 'http';
-import { getProfile, filterProfile, toProfileId } from './profile-store.mjs';
+import { getProfile, filterProfile, toProfileId, checkRelayHealth } from './profile-store.mjs';
 import { renderPage, renderErrorPage } from './components.mjs';
 import { getSdkSource } from './sdk.mjs';
 
 /**
- * Standalone Embed API Server
+ * Standalone Embed API Server — Multi-Node Network Client
+ *
+ * This server acts as its own node on the Y.js network, connecting to
+ * one or more relay servers to locate and serve profile data.
  *
  * Routes:
  *   GET /embed/:profileId         → HTML embed page (use ?show=name,skills to select elements)
  *   GET /api/profile/:profileId   → JSON profile data (use ?fields=name,skills for partial)
  *   GET /embed.js                 → JavaScript SDK for <profile-embed> web component
- *   GET /health                   → Server health status
+ *   GET /health                   → Server health status + relay connectivity
+ *   POST /relays                  → Add a relay URL at runtime (JSON body: { url: "..." })
+ *   DELETE /relays                → Remove a relay URL at runtime (JSON body: { url: "..." })
+ *   GET /relays                   → List all configured relays and their health
  *
- * The :profileId parameter accepts either a bare profile ID (e.g. "abc123")
- * or a full room name (e.g. "profile-abc123"). Both resolve correctly.
+ * Configuration:
+ *   RELAY_URLS — Comma-separated list of relay WebSocket/HTTP URLs
+ *                e.g. ws://localhost:8765,wss://relay.example.com
+ *   RELAY_URL  — Fallback single URL (for backward compatibility)
  */
 
 const PORT = process.env.PORT || 3002;
 const HOST = process.env.HOST || '0.0.0.0';
-const RELAY_URL = process.env.RELAY_URL || 'ws://localhost:8765';
+
+// Parse relay URLs from environment — supports comma-separated list
+function parseRelayUrls() {
+    const urlsEnv = process.env.RELAY_URLS || process.env.RELAY_URL || 'ws://localhost:8765';
+    return urlsEnv
+        .split(',')
+        .map(u => u.trim())
+        .filter(u => u.length > 0);
+}
+
+// Mutable relay list — can be updated at runtime via API
+let relayUrls = parseRelayUrls();
 
 const VALID_ELEMENTS = ['avatar', 'name', 'title', 'bio', 'skills', 'socials', 'contact'];
 
@@ -37,8 +56,19 @@ function parseElements(paramValue) {
 
 function setCors(res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+function readBody(req) {
+    return new Promise((resolve) => {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', () => {
+            try { resolve(JSON.parse(body)); }
+            catch { resolve(null); }
+        });
+    });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -54,13 +84,74 @@ const server = http.createServer(async (req, res) => {
 
     // ── Health ──
     if (path === '/health') {
+        const healthChecks = await Promise.all(
+            relayUrls.map(async (url) => ({
+                url,
+                online: await checkRelayHealth(url)
+            }))
+        );
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             status: 'ok',
-            relayUrl: RELAY_URL,
+            relays: healthChecks,
+            totalRelays: relayUrls.length,
+            onlineRelays: healthChecks.filter(r => r.online).length,
             uptime: process.uptime(),
             timestamp: Date.now()
-        }));
+        }, null, 2));
+        return;
+    }
+
+    // ── Relay management: list ──
+    if (path === '/relays' && req.method === 'GET') {
+        const healthChecks = await Promise.all(
+            relayUrls.map(async (url) => ({
+                url,
+                online: await checkRelayHealth(url)
+            }))
+        );
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ relays: healthChecks }, null, 2));
+        return;
+    }
+
+    // ── Relay management: add ──
+    if (path === '/relays' && req.method === 'POST') {
+        const body = await readBody(req);
+        if (!body?.url) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Missing "url" in request body' }));
+            return;
+        }
+
+        const url = body.url.trim();
+        if (!relayUrls.includes(url)) {
+            relayUrls.push(url);
+            console.log(`[Relays] Added: ${url} (total: ${relayUrls.length})`);
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ relays: relayUrls }));
+        return;
+    }
+
+    // ── Relay management: remove ──
+    if (path === '/relays' && req.method === 'DELETE') {
+        const body = await readBody(req);
+        if (!body?.url) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Missing "url" in request body' }));
+            return;
+        }
+
+        const url = body.url.trim();
+        relayUrls = relayUrls.filter(u => u !== url);
+        console.log(`[Relays] Removed: ${url} (total: ${relayUrls.length})`);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ relays: relayUrls }));
         return;
     }
 
@@ -84,11 +175,17 @@ const server = http.createServer(async (req, res) => {
         const profileId = decodeURIComponent(embedMatch[1]);
         const showElements = parseElements(params.get('show'));
 
+        if (relayUrls.length === 0) {
+            res.writeHead(503, { 'Content-Type': 'text/html' });
+            res.end(renderErrorPage('No relay nodes configured'));
+            return;
+        }
+
         try {
-            const profile = await getProfile(profileId, RELAY_URL);
+            const profile = await getProfile(profileId, relayUrls);
             if (!profile) {
                 res.writeHead(404, { 'Content-Type': 'text/html' });
-                res.end(renderErrorPage('Profile not found'));
+                res.end(renderErrorPage('Profile not found on any relay node'));
                 return;
             }
 
@@ -111,11 +208,17 @@ const server = http.createServer(async (req, res) => {
         const profileId = decodeURIComponent(apiMatch[1]);
         const fields = parseElements(params.get('fields'));
 
+        if (relayUrls.length === 0) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'No relay nodes configured' }));
+            return;
+        }
+
         try {
-            const profile = await getProfile(profileId, RELAY_URL);
+            const profile = await getProfile(profileId, relayUrls);
             if (!profile) {
                 res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Profile not found' }));
+                res.end(JSON.stringify({ error: 'Profile not found on any relay node' }));
                 return;
             }
 
@@ -147,16 +250,24 @@ const server = http.createServer(async (req, res) => {
     .note { color: #94a3b8; font-size: 13px; margin-top: 8px; }
 </style></head><body>
     <h1>📦 Profile Embed API</h1>
-    <p>Embed live profiles from the Profile Maker network.</p>
+    <p>Multi-node network client for embedding live profiles.</p>
+    <p class="note">Connected to <strong>${relayUrls.length}</strong> relay node(s).</p>
 
-    <h2>Endpoints</h2>
+    <h2>Profile Endpoints</h2>
     <div class="endpoint"><code>GET /embed/:profileId</code> — HTML embed page</div>
     <div class="endpoint"><code>GET /embed/:profileId?show=name,skills</code> — Select elements</div>
     <div class="endpoint"><code>GET /api/profile/:profileId</code> — Raw JSON</div>
     <div class="endpoint"><code>GET /api/profile/:profileId?fields=name,skills</code> — Partial JSON</div>
+    <p class="note">Searches all configured relay nodes in parallel to locate the profile.</p>
+
+    <h2>Network Management</h2>
+    <div class="endpoint"><code>GET /relays</code> — List relay nodes + health</div>
+    <div class="endpoint"><code>POST /relays</code> — Add a relay <code>{ "url": "ws://..." }</code></div>
+    <div class="endpoint"><code>DELETE /relays</code> — Remove a relay <code>{ "url": "ws://..." }</code></div>
+    <div class="endpoint"><code>GET /health</code> — Server + relay health</div>
+
+    <h2>SDK</h2>
     <div class="endpoint"><code>GET /embed.js</code> — JavaScript SDK</div>
-    <div class="endpoint"><code>GET /health</code> — Health check</div>
-    <p class="note">The <code>:profileId</code> is the unique ID shown in each profile's card footer.</p>
 
     <h2>Elements</h2>
     <p><code>avatar</code> <code>name</code> <code>title</code> <code>bio</code> <code>skills</code> <code>socials</code> <code>contact</code></p>
@@ -167,12 +278,17 @@ const server = http.createServer(async (req, res) => {
     <p>Or with the SDK:</p>
     <pre>&lt;script src="/embed.js"&gt;&lt;/script&gt;
 &lt;profile-embed profile-id="YOUR_PROFILE_ID" show="name,title,skills"&gt;&lt;/profile-embed&gt;</pre>
+
+    <h2>Configuration</h2>
+    <p class="note">Set <code>RELAY_URLS</code> as a comma-separated list of relay URLs:<br>
+    <code>RELAY_URLS=ws://localhost:8765,wss://relay.example.com</code></p>
 </body></html>`);
 });
 
 server.listen(PORT, HOST, () => {
     console.log(`\n📦 Embed API listening on http://${HOST}:${PORT}`);
-    console.log(`   Relay: ${RELAY_URL}`);
-    console.log(`   Docs:  http://localhost:${PORT}/`);
+    console.log(`   Relay nodes: ${relayUrls.length}`);
+    relayUrls.forEach((url, i) => console.log(`     ${i + 1}. ${url}`));
+    console.log(`   Docs: http://localhost:${PORT}/`);
     console.log('');
 });
