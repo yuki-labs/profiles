@@ -7,11 +7,34 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
 const PROFILE_KEY = 'profileData';
+const ROOM_PREFIX = 'profile-';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+/**
+ * Convert a profile ID to a Y.js room name.
+ * If the input already has the prefix, it's returned as-is.
+ * This allows the API to accept either a bare profile ID or a full room name.
+ */
+export function toRoomId(profileId) {
+    if (profileId.startsWith(ROOM_PREFIX)) {
+        return profileId;
+    }
+    return ROOM_PREFIX + profileId;
+}
+
+/**
+ * Extract the bare profile ID from a room name or profile ID input.
+ */
+export function toProfileId(input) {
+    if (input.startsWith(ROOM_PREFIX)) {
+        return input.slice(ROOM_PREFIX.length);
+    }
+    return input;
 }
 
 /**
@@ -110,15 +133,18 @@ function fetchFromRelay(roomId, relayUrl, timeoutMs = 10000) {
 }
 
 /**
- * Get a profile by room ID.
+ * Get a profile by its profile ID (or full room name).
+ * Automatically resolves the profile ID to a Y.js room name.
  * Checks local cache first, then fetches from the relay.
  * Saves to cache on successful fetch.
  *
- * @param {string} roomId
+ * @param {string} profileId - Profile ID or full room name
  * @param {string} relayUrl
  * @returns {Promise<object|null>} Profile data or null
  */
-export async function getProfile(roomId, relayUrl) {
+export async function getProfile(profileId, relayUrl) {
+    const roomId = toRoomId(profileId);
+
     // 1. Check cache
     const cached = readCache(roomId);
     if (cached && (Date.now() - cached.cachedAt) < CACHE_TTL_MS) {

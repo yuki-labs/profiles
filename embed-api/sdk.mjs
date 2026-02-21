@@ -4,12 +4,17 @@
  *
  * The Web Component fetches rendered HTML from the embed API server
  * and displays it in a shadow DOM.
+ *
+ * Usage:
+ *   <profile-embed profile-id="YOUR_PROFILE_ID" show="name,title,skills"></profile-embed>
+ *
+ * The profile-id attribute accepts the profile's unique ID.
  */
 export function getSdkSource(apiBaseUrl) {
     return `
 (function() {
     class ProfileEmbed extends HTMLElement {
-        static get observedAttributes() { return ['room', 'show']; }
+        static get observedAttributes() { return ['profile-id', 'show']; }
 
         constructor() {
             super();
@@ -26,17 +31,17 @@ export function getSdkSource(apiBaseUrl) {
         }
 
         async _load() {
-            const room = this.getAttribute('room');
-            if (!room) {
-                this._shadow.innerHTML = '<div style="color:#ef4444;padding:16px;">Missing "room" attribute</div>';
+            const profileId = this.getAttribute('profile-id');
+            if (!profileId) {
+                this._shadow.innerHTML = '<div style="color:#ef4444;padding:16px;">Missing "profile-id" attribute</div>';
                 return;
             }
 
             const show = this.getAttribute('show') || '';
-            const baseUrl = '${apiBaseUrl}'.replace(/\\/+$/, '');
+            const baseUrl = '${apiBaseUrl}'.replace(/\\\\/+$/, '');
             const url = show
-                ? baseUrl + '/embed/' + encodeURIComponent(room) + '?show=' + encodeURIComponent(show)
-                : baseUrl + '/embed/' + encodeURIComponent(room);
+                ? baseUrl + '/embed/' + encodeURIComponent(profileId) + '?show=' + encodeURIComponent(show)
+                : baseUrl + '/embed/' + encodeURIComponent(profileId);
 
             try {
                 const resp = await fetch(url);
