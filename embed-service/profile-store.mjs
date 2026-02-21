@@ -1,5 +1,6 @@
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -10,7 +11,9 @@ const PROFILE_KEY = 'profileData';
 const ROOM_PREFIX = 'profile-';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const SUBSCRIPTION_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-const POLL_INTERVAL_MS = 10 * 1000; // 10 seconds — polling fallback
+
+// Unique ID for this embed service instance
+const EMBED_CLIENT_ID = `embed-${crypto.randomBytes(4).toString('hex')}`;
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -18,42 +21,40 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 
 // ── Active subscriptions ──
-// roomId → { doc, provider, profile, listeners, idleTimer, relayUrl, pollTimer }
+// roomId → { doc, provider, profile, listeners, idleTimer, relayUrl }
 const activeSubscriptions = new Map();
 
 /**
  * Convert a profile ID to a Y.js room name.
  */
 export function toRoomId(profileId) {
-    if (profileId.startsWith(ROOM_PREFIX)) {
-        return profileId;
-    }
+    if (profileId.startsWith(ROOM_PREFIX)) return profileId;
     return ROOM_PREFIX + profileId;
 }
 
 /**
- * Extract the bare profile ID from a room name or profile ID input.
+ * Extract the bare profile ID from a room name.
  */
 export function toProfileId(input) {
-    if (input.startsWith(ROOM_PREFIX)) {
-        return input.slice(ROOM_PREFIX.length);
-    }
+    if (input.startsWith(ROOM_PREFIX)) return input.slice(ROOM_PREFIX.length);
     return input;
 }
 
 /**
  * Convert HTTP(S) URL to WebSocket URL.
+ * Appends ?role=embed to identify this service to the relay.
  */
-function toWsUrl(url) {
-    return url
+function toWsUrl(url, asEmbed = false) {
+    let wsUrl = url
         .replace(/\/+$/, '')
         .replace(/^https:\/\//, 'wss://')
         .replace(/^http:\/\//, 'ws://');
+    if (asEmbed) {
+        wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'role=embed';
+    }
+    return wsUrl;
 }
 
-/**
- * Convert a WebSocket URL to HTTP for health checks.
- */
 function toHttpUrl(url) {
     return url
         .replace(/\/+$/, '')
@@ -67,8 +68,7 @@ function readCache(roomId) {
     const filePath = path.join(DATA_DIR, `${roomId}.json`);
     try {
         if (fs.existsSync(filePath)) {
-            const raw = fs.readFileSync(filePath, 'utf8');
-            return JSON.parse(raw);
+            return JSON.parse(fs.readFileSync(filePath, 'utf8'));
         }
     } catch (e) {
         console.error(`[Cache] Failed to read ${roomId}:`, e.message);
@@ -92,30 +92,19 @@ function writeCache(roomId, profile, sourceRelay) {
 
 // ── Subscription helpers ──
 
-/**
- * Notify all listeners that the profile has changed.
- */
 function notifyListeners(roomId, profile) {
     const sub = activeSubscriptions.get(roomId);
     if (!sub) return;
     for (const callback of sub.listeners) {
-        try {
-            callback(profile);
-        } catch (e) {
-            console.error(`[Sub] Listener error for ${roomId}:`, e.message);
-        }
+        try { callback(profile); }
+        catch (e) { console.error(`[Sub] Listener error for ${roomId}:`, e.message); }
     }
 }
 
-/**
- * Reset the idle timer. If no listeners remain after timeout, clean up.
- */
 function resetIdleTimer(roomId) {
     const sub = activeSubscriptions.get(roomId);
     if (!sub) return;
-
     if (sub.idleTimer) clearTimeout(sub.idleTimer);
-
     sub.idleTimer = setTimeout(() => {
         const current = activeSubscriptions.get(roomId);
         if (current && current.listeners.size === 0) {
@@ -125,15 +114,15 @@ function resetIdleTimer(roomId) {
     }, SUBSCRIPTION_IDLE_TIMEOUT_MS);
 }
 
-/**
- * Destroy a subscription and free all resources.
- */
 function destroySubscription(roomId) {
     const sub = activeSubscriptions.get(roomId);
     if (!sub) return;
-
     if (sub.idleTimer) clearTimeout(sub.idleTimer);
-    if (sub.pollTimer) clearInterval(sub.pollTimer);
+    // Deregister from embedClients map before disconnecting
+    try {
+        const embedMap = sub.doc.getMap('embedClients');
+        embedMap.delete(EMBED_CLIENT_ID);
+    } catch { }
     try { sub.provider.disconnect(); } catch { }
     try { sub.provider.destroy(); } catch { }
     try { sub.doc.destroy(); } catch { }
@@ -141,117 +130,49 @@ function destroySubscription(roomId) {
     console.log(`[Sub] Destroyed subscription for ${roomId}`);
 }
 
-/**
- * Extract profile data from a Y.Doc.
- */
 function extractProfile(doc) {
     const profileMap = doc.getMap('profile');
     const rawData = profileMap.get(PROFILE_KEY);
     if (rawData && typeof rawData === 'string') {
-        try {
-            return JSON.parse(rawData);
-        } catch {
-            return null;
-        }
+        try { return JSON.parse(rawData); }
+        catch { return null; }
     }
     return null;
 }
 
 /**
- * One-shot fetch: creates a temporary Y.Doc, connects to the relay,
- * reads the profile data, then disconnects. Used for polling fallback.
+ * Handle a profile push message from the relay server.
+ * The relay sends JSON text frames with { type: 'profileUpdate', profile }
+ * when it detects a profile change in the room.
  */
-function fetchFresh(roomId, relayUrl, timeoutMs = 8000) {
-    return new Promise((resolve) => {
-        const doc = new Y.Doc();
-        const wsUrl = toWsUrl(relayUrl);
-        let resolved = false;
+function handleRelayPush(roomId, data) {
+    try {
+        const msg = JSON.parse(data);
+        if (msg.type !== 'profileUpdate' || !msg.profile) return false;
 
-        const provider = new WebsocketProvider(wsUrl, roomId, doc, {
-            connect: true,
-            maxBackoffTime: 5000,
-        });
+        const sub = activeSubscriptions.get(roomId);
+        if (!sub) return false;
 
-        const timeoutId = setTimeout(() => {
-            if (!resolved) {
-                resolved = true;
-                cleanup();
-                resolve(null);
-            }
-        }, timeoutMs);
+        const oldJson = JSON.stringify(sub.profile);
+        const newJson = JSON.stringify(msg.profile);
 
-        const cleanup = () => {
-            clearTimeout(timeoutId);
-            try { provider.disconnect(); } catch { }
-            try { provider.destroy(); } catch { }
-            try { doc.destroy(); } catch { }
-        };
-
-        const tryExtract = () => {
-            if (resolved) return;
-            const profileMap = doc.getMap('profile');
-            const rawData = profileMap.get(PROFILE_KEY);
-            if (rawData && typeof rawData === 'string') {
-                try {
-                    const profile = JSON.parse(rawData);
-                    resolved = true;
-                    cleanup();
-                    resolve(profile);
-                } catch { }
-            }
-        };
-
-        provider.on('sync', (synced) => {
-            if (synced) tryExtract();
-        });
-
-        provider.on('connection-error', () => {
-            if (!resolved) {
-                resolved = true;
-                cleanup();
-                resolve(null);
-            }
-        });
-
-        doc.getMap('profile').observe(tryExtract);
-    });
-}
-
-/**
- * Start the polling fallback for a subscription.
- * Periodically creates a fresh one-shot connection to detect changes
- * that the persistent observer may miss (e.g. CRDT conflict resolution).
- */
-function startPolling(roomId, relayUrl) {
-    const sub = activeSubscriptions.get(roomId);
-    if (!sub || sub.pollTimer) return;
-
-    sub.pollTimer = setInterval(async () => {
-        const current = activeSubscriptions.get(roomId);
-        if (!current || current.listeners.size === 0) return;
-
-        try {
-            const freshProfile = await fetchFresh(roomId, relayUrl);
-            if (!freshProfile) return;
-
-            const oldJson = JSON.stringify(current.profile);
-            const newJson = JSON.stringify(freshProfile);
-
-            if (oldJson !== newJson) {
-                console.log(`[Poll] Detected change for ${roomId}`);
-                current.profile = freshProfile;
-                writeCache(roomId, freshProfile, relayUrl);
-                notifyListeners(roomId, freshProfile);
-            }
-        } catch (e) {
-            console.error(`[Poll] Error for ${roomId}:`, e.message);
+        if (oldJson !== newJson) {
+            sub.profile = msg.profile;
+            writeCache(roomId, msg.profile, sub.relayUrl);
+            console.log(`[Push] Relay pushed update for ${roomId}`);
+            notifyListeners(roomId, msg.profile);
         }
-    }, POLL_INTERVAL_MS);
+
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /**
- * Create or retrieve a persistent Y.js subscription.
- * Also starts a polling fallback for resilience.
+ * Create or retrieve a persistent subscription for a room.
+ * Connects as an embed client (?role=embed) so the relay pushes profile
+ * updates directly to us via custom JSON messages.
  */
 function ensureSubscription(roomId, relayUrl) {
     if (activeSubscriptions.has(roomId)) {
@@ -261,7 +182,7 @@ function ensureSubscription(roomId, relayUrl) {
     }
 
     const doc = new Y.Doc();
-    const wsUrl = toWsUrl(relayUrl);
+    const wsUrl = toWsUrl(relayUrl, true); // Connect as embed client
 
     const provider = new WebsocketProvider(wsUrl, roomId, doc, {
         connect: true,
@@ -274,13 +195,23 @@ function ensureSubscription(roomId, relayUrl) {
         profile: null,
         listeners: new Set(),
         idleTimer: null,
-        pollTimer: null,
         relayUrl,
     };
 
     activeSubscriptions.set(roomId, sub);
 
-    // Observe Y.Map for changes (fires on local + remote updates)
+    // Listen for custom JSON push messages from the relay
+    // The relay sends text frames alongside the binary Y.js protocol
+    if (provider.ws) {
+        setupPushListener(roomId, provider);
+    }
+    provider.on('status', ({ status }) => {
+        if (status === 'connected') {
+            setupPushListener(roomId, provider);
+        }
+    });
+
+    // Also observe Y.Map as a fallback for standard Y.js sync
     const profileMap = doc.getMap('profile');
     profileMap.observe(() => {
         const newProfile = extractProfile(doc);
@@ -291,7 +222,7 @@ function ensureSubscription(roomId, relayUrl) {
         if (oldJson !== newJson) {
             sub.profile = newProfile;
             writeCache(roomId, newProfile, relayUrl);
-            console.log(`[Sub] Profile updated for ${roomId}`);
+            console.log(`[Sub] Profile updated for ${roomId} (Y.js observe)`);
             notifyListeners(roomId, newProfile);
         }
     });
@@ -300,8 +231,16 @@ function ensureSubscription(roomId, relayUrl) {
     const ready = new Promise((resolve) => {
         const timeoutId = setTimeout(() => resolve(sub.profile), 10000);
 
-        const onSync = (synced) => {
+        provider.on('sync', (synced) => {
             if (synced) {
+                // Register this embed service in the Y.Doc
+                const embedMap = doc.getMap('embedClients');
+                embedMap.set(EMBED_CLIENT_ID, JSON.stringify({
+                    connectedAt: Date.now(),
+                    serviceId: EMBED_CLIENT_ID,
+                }));
+                console.log(`[Sub] Registered as embed client ${EMBED_CLIENT_ID} in ${roomId}`);
+
                 const profile = extractProfile(doc);
                 if (profile) {
                     sub.profile = profile;
@@ -310,32 +249,42 @@ function ensureSubscription(roomId, relayUrl) {
                     resolve(profile);
                 }
             }
-        };
-
-        provider.on('sync', onSync);
-
-        // Also check via observe in case data arrives before sync event
-        const earlyCheck = () => {
-            const profile = extractProfile(doc);
-            if (profile && !sub.profile) {
-                sub.profile = profile;
-                writeCache(roomId, profile, relayUrl);
-                clearTimeout(timeoutId);
-                resolve(profile);
-            }
-        };
-        profileMap.observe(earlyCheck);
+        });
     });
 
     provider.on('connection-error', () => {
         console.error(`[Sub] Connection error for ${roomId} on ${relayUrl}`);
     });
 
-    // Start polling fallback for resilience
-    startPolling(roomId, relayUrl);
     resetIdleTimer(roomId);
-
     return { profile: null, ready };
+}
+
+/**
+ * Attach a message listener to the WebSocket to receive relay push messages.
+ * The y-websocket provider's WebSocket receives both binary Y.js messages
+ * and our custom text-based JSON push messages.
+ */
+function setupPushListener(roomId, provider) {
+    const ws = provider.ws;
+    if (!ws || ws._embedPushListener) return;
+
+    const listener = (event) => {
+        // Only handle text (string) messages — Y.js protocol uses binary
+        const data = typeof event === 'string' ? event : event?.data;
+        if (typeof data === 'string') {
+            handleRelayPush(roomId, data);
+        }
+    };
+
+    // WebSocket in Node.js (ws library) emits 'message' with (data, isBinary)
+    ws.addEventListener('message', (event) => {
+        if (typeof event.data === 'string') {
+            handleRelayPush(roomId, event.data);
+        }
+    });
+
+    ws._embedPushListener = true;
 }
 
 // ── Public API ──
@@ -353,17 +302,13 @@ export function subscribe(profileId, relayUrls, callback) {
     const { ready } = ensureSubscription(roomId, relayUrl);
 
     const sub = activeSubscriptions.get(roomId);
-    if (sub) {
-        sub.listeners.add(callback);
-    }
+    if (sub) sub.listeners.add(callback);
 
     const unsubscribe = () => {
         const current = activeSubscriptions.get(roomId);
         if (current) {
             current.listeners.delete(callback);
-            if (current.listeners.size === 0) {
-                resetIdleTimer(roomId);
-            }
+            if (current.listeners.size === 0) resetIdleTimer(roomId);
         }
     };
 
@@ -415,7 +360,7 @@ export async function getProfile(profileId, relayUrls) {
         }
     }
 
-    // 4. Stale cache fallback
+    // 4. Stale cache
     if (cached) {
         console.log(`[Store] Using stale cache for ${roomId}`);
         return cached.profile;
@@ -448,24 +393,16 @@ export function filterProfile(profile, fields) {
 
     const filtered = {};
     const fieldMap = {
-        id: ['id'],
-        avatar: ['avatar'],
-        name: ['name'],
-        title: ['title'],
-        bio: ['bio'],
-        skills: ['skills'],
-        socials: ['socials'],
-        contact: ['email', 'location', 'website'],
-        theme: ['theme'],
+        id: ['id'], avatar: ['avatar'], name: ['name'], title: ['title'],
+        bio: ['bio'], skills: ['skills'], socials: ['socials'],
+        contact: ['email', 'location', 'website'], theme: ['theme'],
     };
 
     for (const field of fields) {
         const keys = fieldMap[field];
         if (keys) {
             for (const key of keys) {
-                if (profile[key] !== undefined) {
-                    filtered[key] = profile[key];
-                }
+                if (profile[key] !== undefined) filtered[key] = profile[key];
             }
         }
     }
@@ -475,7 +412,7 @@ export function filterProfile(profile, fields) {
 }
 
 /**
- * Get info about active subscriptions (for debugging/health).
+ * Get info about active subscriptions.
  */
 export function getSubscriptionStats() {
     const stats = [];
@@ -485,7 +422,6 @@ export function getSubscriptionStats() {
             hasProfile: !!sub.profile,
             listenerCount: sub.listeners.size,
             relayUrl: sub.relayUrl,
-            hasPolling: !!sub.pollTimer,
         });
     }
     return stats;

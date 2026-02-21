@@ -242,3 +242,40 @@ export async function checkRelayHealth(relayUrl: string): Promise<boolean> {
         return false;
     }
 }
+
+/**
+ * Get the number of embed clients currently subscribed to a profile.
+ * Reads the `embedClients` Y.Map from the active room's Y.Doc.
+ */
+export function getEmbedClientCount(profileId: string): number {
+    const roomId = ROOM_PREFIX + profileId;
+    const room = activeRooms.get(roomId);
+    if (!room) return 0;
+
+    const embedMap = room.doc.getMap('embedClients');
+    return embedMap.size;
+}
+
+/**
+ * Observe changes to the embed client count for a profile.
+ * Calls onChange with the new count whenever embed clients connect/disconnect.
+ * Returns a cleanup function to stop observing.
+ */
+export function onEmbedCountChange(
+    profileId: string,
+    onChange: (count: number) => void
+): () => void {
+    const roomId = ROOM_PREFIX + profileId;
+    const room = activeRooms.get(roomId);
+    if (!room) return () => { };
+
+    const embedMap = room.doc.getMap('embedClients');
+
+    const observer = () => {
+        onChange(embedMap.size);
+    };
+
+    embedMap.observe(observer);
+    return () => embedMap.unobserve(observer);
+}
+

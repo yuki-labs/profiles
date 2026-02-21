@@ -6,7 +6,7 @@ import { ensureProfileId } from './profileId.ts';
 
 import ProfilePreview from './components/ProfilePreview.tsx';
 import { Download, Upload, RefreshCcw, Share2, Copy, X, Globe, Settings, Activity, Plus, Trash2, KeyRound } from 'lucide-react';
-import { shareProfile, viewProfile, checkRelayHealth, normalizeRelayUrl } from './sync.ts';
+import { shareProfile, viewProfile, checkRelayHealth, normalizeRelayUrl, getEmbedClientCount, onEmbedCountChange } from './sync.ts';
 
 declare global {
   interface Window {
@@ -35,6 +35,8 @@ function App() {
 
   const customPeersRef = useRef<string[]>(customPeers);
   const shareCleanupRef = useRef<(() => void) | null>(null);
+  const embedObserverRef = useRef<(() => void) | null>(null);
+  const [embedCount, setEmbedCount] = useState(0);
 
   useEffect(() => {
     customPeersRef.current = customPeers;
@@ -199,6 +201,13 @@ function App() {
       const shareUrl = `${window.location.origin}${window.location.pathname}?view=${roomId}`;
       const deepLink = `profii://${roomId}`;
       setShareData({ shareUrl, deepLink });
+
+      // Start observing embed client count
+      if (embedObserverRef.current) embedObserverRef.current();
+      setEmbedCount(getEmbedClientCount(profile.id));
+      embedObserverRef.current = onEmbedCountChange(profile.id, (count) => {
+        setEmbedCount(count);
+      });
     } catch (err) {
       console.error('Share failed:', err);
       setSyncStatus('error');
@@ -363,6 +372,12 @@ function App() {
                 {syncStatus === 'error' && '❌ Sync failed — check relay connection'}
                 {syncStatus === 'idle' && ''}
               </div>
+
+              {embedCount > 0 && (
+                <div className="sync-status" style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8', borderColor: '#6366f1' }}>
+                  📡 {embedCount} embed service{embedCount !== 1 ? 's' : ''} connected
+                </div>
+              )}
 
               <div className="share-field">
                 <label><KeyRound size={14} /> Profile Identity</label>
