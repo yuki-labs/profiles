@@ -13,7 +13,8 @@
     "electron:build": "npm run build && electron-builder",
     "server": "node server/index.cjs",
     "hosting:desktop": "electron relay/electron/main.cjs",
-    "hosting:railway": "node relay/server.mjs"
+    "hosting:railway": "node relay/server.mjs",
+    "embed": "node embed-api/server.mjs"
   },
   "dependencies": {
     "@y/websocket-server": "^0.1.5",
