@@ -1,5 +1,5 @@
 ---
-description: How to run the Profile Maker as a desktop application
+description: How to run Profii as a desktop application
 ---
 
 To run the application as a desktop app without opening a web browser:
@@ -23,7 +23,7 @@ To run the application as a desktop app without opening a web browser:
    The executable will be generated in the `dist-electron` folder.
 
 3. **Running the Built App**:
-   Once built, you can find `Profile Maker.exe` in `dist-electron` and run it directly.
+   Once built, you can find `Profii.exe` in `dist-electron` and run it directly.
 
 4. **Running a Dedicated Hosting Node (Relay)**:
    If you want to host your own P2P dedicated node to ensure your profiles are always online:

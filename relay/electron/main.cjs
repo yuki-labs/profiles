@@ -41,7 +41,7 @@ const server = http.createServer((req, res) => {
     }
 
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Profile Maker Y.js Desktop Relay is active.');
+    res.end('Profii Y.js Desktop Relay is active.');
 });
 
 // Start the relay with dynamic ESM import
@@ -90,7 +90,7 @@ function createWindow() {
     const win = new BrowserWindow({
         width: 600,
         height: 500,
-        title: 'Profile Maker - Hosting Node',
+        title: 'Profii - Hosting Node',
         backgroundColor: '#0f172a',
         autoHideMenuBar: true,
         webPreferences: {

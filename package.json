@@ -52,8 +52,8 @@
     "wait-on": "^9.0.3"
   },
   "build": {
-    "appId": "com.profilemaker.app",
-    "productName": "Profile Maker",
+    "appId": "com.profii.app",
+    "productName": "Profii",
     "directories": {
       "output": "dist-electron"
     },
@@ -65,9 +65,9 @@
       "target": "portable"
     },
     "protocols": {
-      "name": "profile-maker-deep-link",
+      "name": "profii-deep-link",
       "schemes": [
-        "profilemaker"
+        "profii"
       ]
     }
   }

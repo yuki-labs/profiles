@@ -239,7 +239,7 @@ const server = http.createServer(async (req, res) => {
     // ── Default: API docs ──
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(`<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Profile Embed API</title>
+<html><head><meta charset="UTF-8"><title>Profii Embed API</title>
 <style>
     body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #f8fafc; padding: 40px; max-width: 700px; margin: auto; }
     h1 { color: #818cf8; } h2 { color: #6366f1; margin-top: 2em; }
@@ -249,7 +249,7 @@ const server = http.createServer(async (req, res) => {
     .endpoint { margin: 12px 0; }
     .note { color: #94a3b8; font-size: 13px; margin-top: 8px; }
 </style></head><body>
-    <h1>📦 Profile Embed API</h1>
+    <h1>📦 Profii Embed API</h1>
     <p>Multi-node network client for embedding live profiles.</p>
     <p class="note">Connected to <strong>${relayUrls.length}</strong> relay node(s).</p>
 

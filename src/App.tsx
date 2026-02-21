@@ -197,7 +197,7 @@ function App() {
 
       const roomId = `profile-${profile.id}`;
       const shareUrl = `${window.location.origin}${window.location.pathname}?view=${roomId}`;
-      const deepLink = `profilemaker://${roomId}`;
+      const deepLink = `profii://${roomId}`;
       setShareData({ shareUrl, deepLink });
     } catch (err) {
       console.error('Share failed:', err);
@@ -258,7 +258,7 @@ function App() {
       <header className="main-header">
         <div className="brand">
           <div className="logo-spark">✨</div>
-          <h1>{profile.appName || 'Profile'}<span>Maker</span></h1>
+          <h1>{profile.appName || 'Prof'}<span>ii</span></h1>
         </div>
         <div className="actions">
           <button className="btn btn-secondary" onClick={() => setShowSettings(true)} title="Settings">

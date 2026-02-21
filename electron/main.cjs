@@ -12,10 +12,10 @@ if (!gotTheLock) {
     // Handle protocol registration
     if (process.defaultApp) {
         if (process.argv.length >= 2) {
-            app.setAsDefaultProtocolClient('profilemaker', process.execPath, [path.resolve(process.argv[1])]);
+            app.setAsDefaultProtocolClient('profii', process.execPath, [path.resolve(process.argv[1])]);
         }
     } else {
-        app.setAsDefaultProtocolClient('profilemaker');
+        app.setAsDefaultProtocolClient('profii');
     }
 
     app.on('second-instance', (event, commandLine) => {
@@ -24,7 +24,7 @@ if (!gotTheLock) {
             mainWindow.focus();
 
             // Find the deep link URL in the arguments
-            const url = commandLine.find(arg => arg.startsWith('profilemaker://'));
+            const url = commandLine.find(arg => arg.startsWith('profii://'));
             if (url) {
                 handleDeepLink(url);
             }
@@ -49,7 +49,7 @@ function createWindow() {
             contextIsolation: true,
             preload: path.join(__dirname, 'preload.cjs'),
         },
-        title: 'Profile Maker',
+        title: 'Profii',
         backgroundColor: '#0f172a',
         show: false,
     });
@@ -65,7 +65,7 @@ function createWindow() {
         mainWindow.show();
 
         // Check if app was opened via deep link on startup
-        const url = process.argv.find(arg => arg.startsWith('profilemaker://'));
+        const url = process.argv.find(arg => arg.startsWith('profii://'));
         if (url) {
             handleDeepLink(url);
         }
@@ -80,8 +80,8 @@ function createWindow() {
 
 function handleDeepLink(url) {
     if (!mainWindow) return;
-    // Format: profilemaker://p2p-abc123xyz
-    const viewId = url.replace('profilemaker://', '').split('?')[0].replace(/\/+$/, '');
+    // Format: profii://p2p-abc123xyz
+    const viewId = url.replace('profii://', '').split('?')[0].replace(/\/+$/, '');
     if (viewId) {
         console.log('Sending open-profile to renderer:', viewId);
         mainWindow.webContents.send('open-profile', viewId);

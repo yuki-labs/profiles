@@ -41,7 +41,7 @@ const server = http.createServer((req, res) => {
     }
 
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Profile Maker Y.js Relay is active.');
+    res.end('Profii Y.js Relay is active.');
 });
 
 const wss = new WebSocketServer({ server });
