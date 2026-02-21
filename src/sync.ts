@@ -7,12 +7,10 @@ const ROOM_PREFIX = 'profile-';
 
 /**
  * Converts an HTTP(S) relay URL to a WebSocket URL.
- * e.g. https://example.com → wss://example.com
- *      http://localhost:8765 → ws://localhost:8765
  */
 export function toWsUrl(url: string): string {
     return url
-        .replace(/\/+$/, '')          // strip trailing slashes
+        .replace(/\/+$/, '')
         .replace(/^https:\/\//, 'wss://')
         .replace(/^http:\/\//, 'ws://');
 }
@@ -29,7 +27,6 @@ export function toHttpUrl(url: string): string {
 
 /**
  * Normalizes a relay URL for display/storage.
- * Accepts http(s) or ws(s) URLs. Stores as the base URL without trailing slashes.
  */
 export function normalizeRelayUrl(url: string): string {
     return url.replace(/\/+$/, '').trim();
@@ -39,11 +36,61 @@ export interface ShareResult {
     cleanup: () => void;
 }
 
+// ── Persistent Y.Doc pool ──
+// Reuse the same Y.Doc + provider per room so subsequent shares use the
+// same client ID. This ensures Y.js CRDT "last writer wins" always
+// resolves in favor of the latest write (same client, higher clock).
+interface ActiveRoom {
+    doc: Y.Doc;
+    provider: WebsocketProvider;
+    relayUrl: string;
+}
+
+const activeRooms = new Map<string, ActiveRoom>();
+
+/**
+ * Clean up a persistent room connection.
+ */
+function destroyRoom(roomId: string) {
+    const room = activeRooms.get(roomId);
+    if (!room) return;
+    try { room.provider.disconnect(); } catch { }
+    try { room.provider.destroy(); } catch { }
+    try { room.doc.destroy(); } catch { }
+    activeRooms.delete(roomId);
+}
+
+/**
+ * Get or create a persistent Y.Doc + provider for a room.
+ * If the relay URL changed, the old connection is torn down and replaced.
+ */
+function getOrCreateRoom(roomId: string, relayUrl: string): ActiveRoom {
+    const existing = activeRooms.get(roomId);
+    if (existing && existing.relayUrl === relayUrl) {
+        return existing;
+    }
+
+    // Tear down old connection if relay changed
+    if (existing) {
+        destroyRoom(roomId);
+    }
+
+    const doc = new Y.Doc();
+    const wsUrl = toWsUrl(relayUrl);
+    const provider = new WebsocketProvider(wsUrl, roomId, doc, {
+        connect: true,
+        maxBackoffTime: 5000,
+    });
+
+    const room: ActiveRoom = { doc, provider, relayUrl };
+    activeRooms.set(roomId, room);
+    return room;
+}
+
 /**
  * Share a profile via the Y.js relay.
- * Uses the profile's own ID as the room name, making it permanently addressable.
- * Creates a Y.Doc, stores the profile data, and connects to the relay.
- * Returns once the initial sync is complete or times out.
+ * Reuses a persistent Y.Doc per room so that subsequent shares always
+ * use the same client ID, avoiding CRDT conflicts where old data could win.
  */
 export function shareProfile(
     profile: ProfileData,
@@ -56,40 +103,39 @@ export function shareProfile(
         }
 
         const roomId = ROOM_PREFIX + profile.id;
-        const doc = new Y.Doc();
-        const profileMap = doc.getMap('profile');
+        const room = getOrCreateRoom(roomId, relayUrl);
+        const { doc, provider } = room;
 
-        // Store the entire profile as a JSON string to preserve all nested structures
+        const profileMap = doc.getMap('profile');
         profileMap.set(PROFILE_KEY, JSON.stringify(profile));
         profileMap.set('updatedAt', Date.now());
 
-        const wsUrl = toWsUrl(relayUrl);
+        const cleanup = () => {
+            destroyRoom(roomId);
+        };
 
-        const provider = new WebsocketProvider(wsUrl, roomId, doc, {
-            connect: true,
-            maxBackoffTime: 5000,
-        });
+        // If already connected and synced, the update propagates immediately
+        if (provider.synced) {
+            console.log('[Y.js] Profile updated on existing connection');
+            resolve({ cleanup });
+            return;
+        }
 
         const timeoutId = setTimeout(() => {
-            // If we haven't synced in 8s, resolve anyway — data is in the doc
-            // and will sync when the connection is established
             console.warn('[Y.js] Share timed out waiting for sync, but doc is ready');
             resolve({ cleanup });
         }, 8000);
 
-        const cleanup = () => {
-            provider.disconnect();
-            provider.destroy();
-            doc.destroy();
-        };
-
-        provider.on('sync', (synced: boolean) => {
+        const onSync = (synced: boolean) => {
             if (synced) {
                 clearTimeout(timeoutId);
+                provider.off('sync', onSync);
                 console.log('[Y.js] Profile shared and synced to relay');
                 resolve({ cleanup });
             }
-        });
+        };
+
+        provider.on('sync', onSync);
 
         provider.on('connection-error', (evt: Event) => {
             clearTimeout(timeoutId);
@@ -106,8 +152,6 @@ export interface ViewResult {
 
 /**
  * View a shared profile by connecting to its Y.js room on the relay.
- * Calls onData when profile data is received.
- * Calls onTimeout if no data arrives within the timeout period.
  */
 export function viewProfile(
     roomId: string,
@@ -140,7 +184,6 @@ export function viewProfile(
         doc.destroy();
     };
 
-    // Listen for sync events — data arrives when the relay sends the doc
     provider.on('sync', (synced: boolean) => {
         if (synced && !found) {
             const profileMap = doc.getMap('profile');
@@ -160,7 +203,6 @@ export function viewProfile(
         }
     });
 
-    // Also observe changes in case data arrives after initial sync
     const profileMap = doc.getMap('profile');
     profileMap.observe(() => {
         if (found) return;

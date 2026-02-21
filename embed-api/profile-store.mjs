@@ -10,6 +10,7 @@ const PROFILE_KEY = 'profileData';
 const ROOM_PREFIX = 'profile-';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const SUBSCRIPTION_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const POLL_INTERVAL_MS = 10 * 1000; // 10 seconds — polling fallback
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -17,7 +18,7 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 
 // ── Active subscriptions ──
-// roomId → { doc, provider, profile, listeners: Set<callback>, idleTimer, relayUrl }
+// roomId → { doc, provider, profile, listeners, idleTimer, relayUrl, pollTimer }
 const activeSubscriptions = new Map();
 
 /**
@@ -89,10 +90,10 @@ function writeCache(roomId, profile, sourceRelay) {
     }
 }
 
-// ── Subscription manager ──
+// ── Subscription helpers ──
 
 /**
- * Notify all listeners registered for a room that the profile has updated.
+ * Notify all listeners that the profile has changed.
  */
 function notifyListeners(roomId, profile) {
     const sub = activeSubscriptions.get(roomId);
@@ -107,16 +108,13 @@ function notifyListeners(roomId, profile) {
 }
 
 /**
- * Reset the idle timer for a subscription. If no listeners remain
- * after the timeout, the persistent connection is cleaned up.
+ * Reset the idle timer. If no listeners remain after timeout, clean up.
  */
 function resetIdleTimer(roomId) {
     const sub = activeSubscriptions.get(roomId);
     if (!sub) return;
 
-    if (sub.idleTimer) {
-        clearTimeout(sub.idleTimer);
-    }
+    if (sub.idleTimer) clearTimeout(sub.idleTimer);
 
     sub.idleTimer = setTimeout(() => {
         const current = activeSubscriptions.get(roomId);
@@ -128,13 +126,14 @@ function resetIdleTimer(roomId) {
 }
 
 /**
- * Destroy a persistent subscription and free resources.
+ * Destroy a subscription and free all resources.
  */
 function destroySubscription(roomId) {
     const sub = activeSubscriptions.get(roomId);
     if (!sub) return;
 
     if (sub.idleTimer) clearTimeout(sub.idleTimer);
+    if (sub.pollTimer) clearInterval(sub.pollTimer);
     try { sub.provider.disconnect(); } catch { }
     try { sub.provider.destroy(); } catch { }
     try { sub.doc.destroy(); } catch { }
@@ -144,7 +143,6 @@ function destroySubscription(roomId) {
 
 /**
  * Extract profile data from a Y.Doc.
- * Returns the parsed profile or null.
  */
 function extractProfile(doc) {
     const profileMap = doc.getMap('profile');
@@ -160,16 +158,102 @@ function extractProfile(doc) {
 }
 
 /**
- * Create or retrieve a persistent Y.js subscription for a room.
- * Keeps the WebSocket connection alive, observes for changes,
- * and notifies listeners when profile data updates.
- *
- * @param {string} roomId - Y.js room name
- * @param {string} relayUrl - Relay URL to connect to
- * @returns {{ profile: object|null, ready: Promise<object|null> }}
+ * One-shot fetch: creates a temporary Y.Doc, connects to the relay,
+ * reads the profile data, then disconnects. Used for polling fallback.
+ */
+function fetchFresh(roomId, relayUrl, timeoutMs = 8000) {
+    return new Promise((resolve) => {
+        const doc = new Y.Doc();
+        const wsUrl = toWsUrl(relayUrl);
+        let resolved = false;
+
+        const provider = new WebsocketProvider(wsUrl, roomId, doc, {
+            connect: true,
+            maxBackoffTime: 5000,
+        });
+
+        const timeoutId = setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                cleanup();
+                resolve(null);
+            }
+        }, timeoutMs);
+
+        const cleanup = () => {
+            clearTimeout(timeoutId);
+            try { provider.disconnect(); } catch { }
+            try { provider.destroy(); } catch { }
+            try { doc.destroy(); } catch { }
+        };
+
+        const tryExtract = () => {
+            if (resolved) return;
+            const profileMap = doc.getMap('profile');
+            const rawData = profileMap.get(PROFILE_KEY);
+            if (rawData && typeof rawData === 'string') {
+                try {
+                    const profile = JSON.parse(rawData);
+                    resolved = true;
+                    cleanup();
+                    resolve(profile);
+                } catch { }
+            }
+        };
+
+        provider.on('sync', (synced) => {
+            if (synced) tryExtract();
+        });
+
+        provider.on('connection-error', () => {
+            if (!resolved) {
+                resolved = true;
+                cleanup();
+                resolve(null);
+            }
+        });
+
+        doc.getMap('profile').observe(tryExtract);
+    });
+}
+
+/**
+ * Start the polling fallback for a subscription.
+ * Periodically creates a fresh one-shot connection to detect changes
+ * that the persistent observer may miss (e.g. CRDT conflict resolution).
+ */
+function startPolling(roomId, relayUrl) {
+    const sub = activeSubscriptions.get(roomId);
+    if (!sub || sub.pollTimer) return;
+
+    sub.pollTimer = setInterval(async () => {
+        const current = activeSubscriptions.get(roomId);
+        if (!current || current.listeners.size === 0) return;
+
+        try {
+            const freshProfile = await fetchFresh(roomId, relayUrl);
+            if (!freshProfile) return;
+
+            const oldJson = JSON.stringify(current.profile);
+            const newJson = JSON.stringify(freshProfile);
+
+            if (oldJson !== newJson) {
+                console.log(`[Poll] Detected change for ${roomId}`);
+                current.profile = freshProfile;
+                writeCache(roomId, freshProfile, relayUrl);
+                notifyListeners(roomId, freshProfile);
+            }
+        } catch (e) {
+            console.error(`[Poll] Error for ${roomId}:`, e.message);
+        }
+    }, POLL_INTERVAL_MS);
+}
+
+/**
+ * Create or retrieve a persistent Y.js subscription.
+ * Also starts a polling fallback for resilience.
  */
 function ensureSubscription(roomId, relayUrl) {
-    // Reuse existing subscription
     if (activeSubscriptions.has(roomId)) {
         const sub = activeSubscriptions.get(roomId);
         resetIdleTimer(roomId);
@@ -190,18 +274,18 @@ function ensureSubscription(roomId, relayUrl) {
         profile: null,
         listeners: new Set(),
         idleTimer: null,
+        pollTimer: null,
         relayUrl,
     };
 
     activeSubscriptions.set(roomId, sub);
 
-    // Observe profile map for changes — this fires on every Y.js update
+    // Observe Y.Map for changes (fires on local + remote updates)
     const profileMap = doc.getMap('profile');
     profileMap.observe(() => {
         const newProfile = extractProfile(doc);
         if (!newProfile) return;
 
-        // Only notify if data actually changed
         const oldJson = JSON.stringify(sub.profile);
         const newJson = JSON.stringify(newProfile);
         if (oldJson !== newJson) {
@@ -212,14 +296,11 @@ function ensureSubscription(roomId, relayUrl) {
         }
     });
 
-    // Create a promise that resolves when the initial profile is available
+    // Promise that resolves when initial data is available
     const ready = new Promise((resolve) => {
-        const timeoutId = setTimeout(() => {
-            // If we haven't received data after 10s, resolve with whatever we have
-            resolve(sub.profile);
-        }, 10000);
+        const timeoutId = setTimeout(() => resolve(sub.profile), 10000);
 
-        provider.on('sync', (synced) => {
+        const onSync = (synced) => {
             if (synced) {
                 const profile = extractProfile(doc);
                 if (profile) {
@@ -229,10 +310,12 @@ function ensureSubscription(roomId, relayUrl) {
                     resolve(profile);
                 }
             }
-        });
+        };
 
-        // Also check if data arrives via observe before sync event
-        const checkOnce = () => {
+        provider.on('sync', onSync);
+
+        // Also check via observe in case data arrives before sync event
+        const earlyCheck = () => {
             const profile = extractProfile(doc);
             if (profile && !sub.profile) {
                 sub.profile = profile;
@@ -241,14 +324,17 @@ function ensureSubscription(roomId, relayUrl) {
                 resolve(profile);
             }
         };
-        profileMap.observe(checkOnce);
+        profileMap.observe(earlyCheck);
     });
 
     provider.on('connection-error', () => {
         console.error(`[Sub] Connection error for ${roomId} on ${relayUrl}`);
     });
 
+    // Start polling fallback for resilience
+    startPolling(roomId, relayUrl);
     resetIdleTimer(roomId);
+
     return { profile: null, ready };
 }
 
@@ -256,18 +342,11 @@ function ensureSubscription(roomId, relayUrl) {
 
 /**
  * Subscribe to live updates for a profile.
- * The callback will be invoked whenever the profile data changes.
- *
- * @param {string} profileId - Profile ID or full room name
- * @param {string[]} relayUrls - List of relay URLs
- * @param {function} callback - Called with (profile) on each update
- * @returns {{ unsubscribe: function, ready: Promise<object|null> }}
  */
 export function subscribe(profileId, relayUrls, callback) {
     const roomId = toRoomId(profileId);
     const urls = Array.isArray(relayUrls) ? relayUrls : [relayUrls];
 
-    // Use the first available relay (or the one from an existing subscription)
     const existing = activeSubscriptions.get(roomId);
     const relayUrl = existing?.relayUrl || urls[0];
 
@@ -293,46 +372,32 @@ export function subscribe(profileId, relayUrls, callback) {
 
 /**
  * Get a profile by its profile ID.
- * Checks cache first, then connects to relays.
- * Creates a persistent subscription for future live updates.
- *
- * @param {string} profileId - Profile ID or full room name
- * @param {string[]} relayUrls - List of relay URLs to search
- * @returns {Promise<object|null>} Profile data or null
  */
 export async function getProfile(profileId, relayUrls) {
     const roomId = toRoomId(profileId);
     const urls = Array.isArray(relayUrls) ? relayUrls : [relayUrls];
 
-    // 1. Check if we have an active subscription with data
+    // 1. Active subscription with data
     const existing = activeSubscriptions.get(roomId);
     if (existing?.profile) {
         console.log(`[Store] Live subscription hit for ${roomId}`);
         return existing.profile;
     }
 
-    // 2. Check disk cache (for fast initial response)
+    // 2. Disk cache
     const cached = readCache(roomId);
     if (cached && (Date.now() - cached.cachedAt) < CACHE_TTL_MS) {
         console.log(`[Store] Cache hit for ${roomId}`);
-
-        // Start a background subscription for future updates
         const relayUrl = cached.sourceRelay || urls[0];
-        if (relayUrl) {
-            ensureSubscription(roomId, relayUrl);
-        }
-
+        if (relayUrl) ensureSubscription(roomId, relayUrl);
         return cached.profile;
     }
 
-    // 3. Fetch from network — try each relay, first success wins
-    if (urls.length === 0) {
-        return cached?.profile || null;
-    }
+    // 3. Fetch from network
+    if (urls.length === 0) return cached?.profile || null;
 
     console.log(`[Store] Searching ${urls.length} relay(s) for ${roomId}...`);
 
-    // Try preferred relay first (from stale cache)
     const preferredRelay = cached?.sourceRelay;
     const orderedUrls = preferredRelay && urls.includes(preferredRelay)
         ? [preferredRelay, ...urls.filter(u => u !== preferredRelay)]
@@ -342,10 +407,7 @@ export async function getProfile(profileId, relayUrls) {
         try {
             const { ready } = ensureSubscription(roomId, relayUrl);
             const profile = await ready;
-            if (profile) {
-                return profile;
-            }
-            // If this relay didn't have it, destroy and try next
+            if (profile) return profile;
             destroySubscription(roomId);
         } catch (e) {
             console.error(`[Store] Failed on relay ${relayUrl}:`, e.message);
@@ -353,7 +415,7 @@ export async function getProfile(profileId, relayUrls) {
         }
     }
 
-    // 4. Fall back to stale cache
+    // 4. Stale cache fallback
     if (cached) {
         console.log(`[Store] Using stale cache for ${roomId}`);
         return cached.profile;
@@ -379,7 +441,7 @@ export async function checkRelayHealth(relayUrl) {
 }
 
 /**
- * Filter profile fields based on a list of requested field names.
+ * Filter profile fields.
  */
 export function filterProfile(profile, fields) {
     if (!fields || fields.length === 0) return profile;
@@ -408,11 +470,7 @@ export function filterProfile(profile, fields) {
         }
     }
 
-    // Always include theme for styling
-    if (profile.theme) {
-        filtered.theme = profile.theme;
-    }
-
+    if (profile.theme) filtered.theme = profile.theme;
     return filtered;
 }
 
@@ -427,6 +485,7 @@ export function getSubscriptionStats() {
             hasProfile: !!sub.profile,
             listenerCount: sub.listeners.size,
             relayUrl: sub.relayUrl,
+            hasPolling: !!sub.pollTimer,
         });
     }
     return stats;
