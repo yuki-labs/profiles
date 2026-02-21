@@ -6,57 +6,98 @@ A decentralized, **Peer-to-Peer** profile creation and hosting platform. Create 
 
 ## 🚀 Key Features
 
-- **P2P Decentralization**: Powered by [GunDB](https://gun.eco/), profiles are gossiped across a decentralized mesh.
-- **Dedicated Hosting Nodes**: Run a standalone relay node on your desktop or in the cloud (Railway) to ensure your data stays online.
-- **Intelligent Auto-Discovery**: The app automatically "seeks out" and connects to dedicated hosting nodes in the network.
+- **P2P Sync**: Powered by [Y.js](https://yjs.dev/) + WebSocket, profiles sync in real-time across a relay network.
+- **Dedicated Hosting Nodes**: Run a standalone relay node on your desktop or in the cloud (Railway) to keep profiles available.
 - **WYSIWYG Editor**: Direct-on-card editing with live preview.
 - **Portable Desktop App**: Built with Electron for a native, distraction-free experience.
 - **One-Click Sharing**: Generate P2P links that anyone can view using the built-in Viewer Mode.
+- **Embed API**: Standalone service that lets third-party developers embed profile components on any website.
 
-## 🧠 P2P API & Data Mesh
+## 📦 Embed API
 
-Because this app is decentralized, there is no traditional REST API. Instead, you interact with a **Distributed Graph API**. Any application can join the mesh to read or search for profiles.
+The Embed API is a standalone Node.js service that joins the relay network, caches profiles locally, and serves embeddable profile components to developers.
 
-### Connecting to the Mesh
-To interact with the data programmatically, use the `gun` library:
+### Running the Embed API
 
-```javascript
-import Gun from 'gun';
+```bash
+# Start the relay
+npm run hosting:railway
 
-// Connect to the public bootstrap relay
-const gun = Gun(['https://gun-manhattan.herokuapp.com/gun']);
-
-// Access the Profile Maker namespace
-const profiles = gun.get('profile-maker-p2p-v1');
+# Start the embed API (separate terminal)
+RELAY_URL=ws://localhost:8765 npm run embed
 ```
 
-### Reading a Profile
-If you have a P2P ID (e.g., from a share link), you can fetch the data directly:
+The API runs on port `3002` by default. Visit `http://localhost:3002/` for interactive docs.
 
-```javascript
-const profileId = 'p2p-abc123xyz';
-profiles.get(profileId).once((data) => {
-  console.log("Retrieved Profile:", data);
-});
+### Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /embed/:roomId` | HTML embed page (full profile card) |
+| `GET /embed/:roomId?show=name,skills` | HTML with selected elements only |
+| `GET /api/profile/:roomId` | Full profile as JSON |
+| `GET /api/profile/:roomId?fields=name,skills` | Partial JSON |
+| `GET /embed.js` | JavaScript SDK script |
+| `GET /health` | Health check |
+
+### Available Elements
+
+Use these with the `show` (HTML) or `fields` (JSON) parameter — comma-separated, any combination:
+
+`avatar` · `name` · `title` · `bio` · `skills` · `socials` · `contact`
+
+Omit the parameter to include everything.
+
+### Integration: iframe
+
+```html
+<!-- Full profile card -->
+<iframe src="https://your-embed-api.com/embed/profile-abc123"
+        width="440" height="600" frameborder="0"></iframe>
+
+<!-- Only avatar, name, and skills -->
+<iframe src="https://your-embed-api.com/embed/profile-abc123?show=avatar,name,skills"
+        width="440" height="300" frameborder="0"></iframe>
 ```
 
-### Discovery API
-You can listen for new dedicated hosting nodes (relays) that join the network:
+### Integration: JavaScript SDK
 
-```javascript
-gun.get('profile-maker-discovery').get('relays').map().on((node) => {
-  if (node && node.url) {
-    console.log("Discovered Relay Node:", node.url);
-  }
-});
+```html
+<script src="https://your-embed-api.com/embed.js"></script>
+
+<!-- Full card -->
+<profile-embed room="profile-abc123"></profile-embed>
+
+<!-- Selective elements -->
+<profile-embed room="profile-abc123" show="name,title,skills"></profile-embed>
 ```
 
-## 🌐 P2P Hosting Node (Relay)
+### Integration: REST/JSON
 
-To ensure your profiles are always accessible, you can run a dedicated hosting node.
+```bash
+# Full profile
+curl https://your-embed-api.com/api/profile/profile-abc123
+
+# Partial (only name and skills)
+curl https://your-embed-api.com/api/profile/profile-abc123?fields=name,skills
+```
+
+### Deploying
+
+Deploy the embed API as a separate service (e.g., a second Railway app). Set these environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `RELAY_URL` | WebSocket URL of your relay | `ws://localhost:8765` |
+| `PORT` | HTTP port | `3002` |
+
+Start command: `npm run embed`
+
+## 🌐 Relay Hosting Node
+
+To ensure profiles are always accessible, run a dedicated relay node.
 
 ### Desktop Node
-Run a dedicated node with a status UI:
 ```bash
 npm run hosting:desktop
 ```
@@ -64,7 +105,7 @@ npm run hosting:desktop
 ### Cloud Node (Railway)
 1. Fork/Clone this repo to GitHub.
 2. Connect the repo to [Railway](https://railway.app/).
-3. **CRITICAL**: Go to **Settings > Networking** in Railway and click **Generate Domain**. The app needs this public URL to announce itself to the P2P mesh.
+3. Go to **Settings > Networking** and click **Generate Domain**.
 4. Set the start command to:
    ```bash
    npm run hosting:railway
