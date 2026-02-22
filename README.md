@@ -11,87 +11,72 @@ A decentralized, **Peer-to-Peer** profile creation and hosting platform. Create 
 - **WYSIWYG Editor**: Direct-on-card editing with live preview.
 - **Portable Desktop App**: Built with Electron for a native, distraction-free experience.
 - **One-Click Sharing**: Generate P2P links that anyone can view using the built-in Viewer Mode.
-- **Embed Service**: Standalone service that lets third-party developers embed profile components on any website.
+- **Profile Embeds**: The reacts site provides REST and SSE endpoints for embedding profile data — no separate service needed.
 
-## 📦 Embed Service
+## 📦 Profile Embed API
 
-The Embed Service is a standalone Node.js service that joins the relay network, caches profiles locally, and serves embeddable profile components to developers.
-
-### Running the Embed Service
-
-```bash
-# Start the relay
-npm run hosting:railway
-
-# Start the embed service (separate terminal)
-RELAY_URL=ws://localhost:8765 npm run embed
-```
-
-The service runs on port `3002` by default. Visit `http://localhost:3002/` for interactive docs.
+The reacts site connects directly to the Y.js relay and serves profile data for both its own UI and third-party developers. No separate embed service is required.
 
 ### Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /embed/:roomId` | HTML embed page (full profile card) |
-| `GET /embed/:roomId?show=name,skills` | HTML with selected elements only |
-| `GET /api/profile/:roomId` | Full profile as JSON |
-| `GET /api/profile/:roomId?fields=name,skills` | Partial JSON |
-| `GET /embed.js` | JavaScript SDK script |
-| `GET /health` | Health check |
+| `GET /api/profile-embed/:roomId` | Profile as JSON (avatar, name, title, bio) |
+| `GET /api/profile-embed/:roomId/subscribe` | SSE stream — pushes live updates |
 
-### Available Elements
+### How It Works
 
-Use these with the `show` (HTML) or `fields` (JSON) parameter — comma-separated, any combination:
-
-`avatar` · `name` · `title` · `bio` · `skills` · `socials` · `contact`
-
-Omit the parameter to include everything.
-
-### Integration: iframe
-
-```html
-<!-- Full profile card -->
-<iframe src="https://your-embed-service.com/embed/profile-abc123"
-        width="440" height="600" frameborder="0"></iframe>
-
-<!-- Only avatar, name, and skills -->
-<iframe src="https://your-embed-service.com/embed/profile-abc123?show=avatar,name,skills"
-        width="440" height="300" frameborder="0"></iframe>
+```
+Profii Desktop ──▶ Y.js Relay (RELAY_URL) ──▶ Reacts Server (profile-store.js)
+                                                     │
+                                         ┌───────────┴───────────┐
+                                    REST (JSON)           SSE (live stream)
+                                         │                       │
+                                    Third parties           Any client
+                                    & reacts UI             (EventSource)
 ```
 
-### Integration: JavaScript SDK
-
-```html
-<script src="https://your-embed-service.com/embed.js"></script>
-
-<!-- Full card -->
-<profile-embed room="profile-abc123"></profile-embed>
-
-<!-- Selective elements -->
-<profile-embed room="profile-abc123" show="name,title,skills"></profile-embed>
-```
+1. `profile-store.js` maintains a persistent Y.js connection to the relay, keeping a live Y.Doc per room.
+2. `profile-embed.js` exposes both REST (one-shot) and SSE (live) endpoints.
+3. On the frontend, the `useProfileSSE(roomId)` hook subscribes any React component to live updates.
 
 ### Integration: REST/JSON
 
 ```bash
-# Full profile
-curl https://your-embed-service.com/api/profile/profile-abc123
-
-# Partial (only name and skills)
-curl https://your-embed-service.com/api/profile/profile-abc123?fields=name,skills
+# Fetch profile data
+curl https://your-reacts-site.com/api/profile-embed/profile-abc123
 ```
 
-### Deploying
+```json
+{
+  "avatar": "data:image/...",
+  "name": "Jane Doe",
+  "title": "Full Stack Developer",
+  "bio": "Building cool things."
+}
+```
 
-Deploy the embed service as a separate service (e.g., a second Railway app). Set these environment variables:
+### Integration: SSE (Live Updates)
+
+```javascript
+const source = new EventSource(
+  'https://your-reacts-site.com/api/profile-embed/profile-abc123/subscribe'
+);
+
+source.addEventListener('update', (event) => {
+  const profile = JSON.parse(event.data);
+  console.log('Profile updated:', profile.name);
+});
+```
+
+### Configuration
+
+Only one environment variable is needed on the reacts server:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `RELAY_URL` | WebSocket URL of your relay | `ws://localhost:8765` |
-| `PORT` | HTTP port | `3002` |
+| `RELAY_URL` | WebSocket URL of your Y.js relay | `ws://localhost:8765` |
 
-Start command: `npm run embed`
 
 ## 🌐 Relay Hosting Node
 
