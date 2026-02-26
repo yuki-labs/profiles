@@ -1,7 +1,9 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import type { ProfileData } from '../types.ts';
 import { Mail, MapPin, Globe, ExternalLink, Github, Twitter, Linkedin, Instagram, Camera, Plus, Trash2 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { loadGoogleFont } from '../fontLoader.ts';
+import FontPicker from './FontPicker.tsx';
 import './Preview.css';
 
 interface Props {
@@ -21,6 +23,15 @@ const getSocialIcon = (platform: string) => {
 
 const ProfilePreview: React.FC<Props> = ({ profile, setProfile, readonly = false }) => {
     const avatarInputRef = useRef<HTMLInputElement>(null);
+
+    // Load the custom font on mount / when it changes
+    useEffect(() => {
+        loadGoogleFont(profile.theme.nameFont);
+    }, [profile.theme.nameFont]);
+
+    const nameFontStyle = profile.theme.nameFont
+        ? { fontFamily: `'${profile.theme.nameFont}', sans-serif` }
+        : {};
 
     const updateProfile = (field: keyof ProfileData, value: any) => {
         setProfile((prev) => ({ ...prev, [field]: value }));
@@ -95,14 +106,24 @@ const ProfilePreview: React.FC<Props> = ({ profile, setProfile, readonly = false
 
                     <div className="header-info">
                         {readonly ? (
-                            <h1 className="preview-name">{profile.name || 'Your Name'}</h1>
+                            <h1 className="preview-name" style={nameFontStyle}>{profile.name || 'Your Name'}</h1>
                         ) : (
-                            <input
-                                className="wysiwyg-input preview-name"
-                                value={profile.name}
-                                onChange={(e) => updateProfile('name', e.target.value)}
-                                placeholder="Your Name"
-                            />
+                            <>
+                                <input
+                                    className="wysiwyg-input preview-name"
+                                    value={profile.name}
+                                    onChange={(e) => updateProfile('name', e.target.value)}
+                                    placeholder="Your Name"
+                                    style={nameFontStyle}
+                                />
+                                <FontPicker
+                                    value={profile.theme.nameFont}
+                                    onChange={(font) => setProfile((prev) => ({
+                                        ...prev,
+                                        theme: { ...prev.theme, nameFont: font }
+                                    }))}
+                                />
+                            </>
                         )}
                         {readonly ? (
                             <p className="preview-title" style={{ color: profile.theme.primaryColor }}>{profile.title || 'Professional Title'}</p>

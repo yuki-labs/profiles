@@ -16,6 +16,7 @@ export interface ProfileData {
     theme: {
         primaryColor: string;
         darkMode: boolean;
+        nameFont?: string;
     };
 }
 

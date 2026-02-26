@@ -1,0 +1,123 @@
+.font-picker {
+    position: relative;
+    width: 100%;
+    margin-top: 0.5rem;
+}
+
+.font-picker-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.font-picker-trigger:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.font-picker-trigger.open {
+    border-color: var(--accent-primary);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.font-picker-trigger .trigger-label {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-right: 0.5rem;
+}
+
+.font-picker-trigger .trigger-value {
+    flex: 1;
+    text-align: left;
+}
+
+.font-picker-trigger .trigger-chevron {
+    transition: transform 0.2s ease;
+}
+
+.font-picker-trigger.open .trigger-chevron {
+    transform: rotate(180deg);
+}
+
+.font-picker-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    max-height: 280px;
+    overflow-y: auto;
+    z-index: 50;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    padding: 0.25rem;
+}
+
+.font-picker-category {
+    padding: 0.4rem 0.75rem 0.25rem;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-muted);
+    opacity: 0.6;
+}
+
+.font-picker-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    text-align: left;
+}
+
+.font-picker-option:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.font-picker-option.selected {
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--accent-primary);
+}
+
+.font-picker-reset {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: none;
+    border-top: 1px solid var(--glass-border);
+    border-radius: 0;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    margin-top: 0.25rem;
+}
+
+.font-picker-reset:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
