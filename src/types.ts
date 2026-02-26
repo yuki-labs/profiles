@@ -18,6 +18,12 @@ export interface ProfileData {
         darkMode: boolean;
         nameFont?: string;
         nameFontData?: string;
+        nameColorMode?: 'solid' | 'gradient';
+        nameColor?: string;
+        nameGradient?: {
+            stops: { color: string; position: number }[];
+            angle: number;
+        };
     };
 }
 

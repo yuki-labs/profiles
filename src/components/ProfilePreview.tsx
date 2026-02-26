@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { loadNameFont } from '../fontLoader.ts';
 import { subsetFontForText, bufferToBase64, getLocalFontSource } from '../fontSubset.ts';
 import FontPicker from './FontPicker.tsx';
+import NameColorPicker from './NameColorPicker.tsx';
 import './Preview.css';
 
 interface Props {
@@ -53,6 +54,24 @@ const ProfilePreview: React.FC<Props> = ({ profile, setProfile, readonly = false
     const nameFontStyle = profile.theme.nameFont
         ? { fontFamily: `'${profile.theme.nameFont}', sans-serif` }
         : {};
+
+    const nameColorStyle: React.CSSProperties = (() => {
+        const { nameColorMode, nameColor, nameGradient } = profile.theme;
+        if (nameColorMode === 'solid' && nameColor) {
+            return { color: nameColor };
+        }
+        if (nameColorMode === 'gradient' && nameGradient && nameGradient.stops.length >= 2) {
+            const sorted = [...nameGradient.stops].sort((a, b) => a.position - b.position);
+            const colorStops = sorted.map(s => `${s.color} ${s.position}%`).join(', ');
+            return {
+                backgroundImage: `linear-gradient(${nameGradient.angle}deg, ${colorStops})`,
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+            };
+        }
+        return {};
+    })();
 
     const updateProfile = (field: keyof ProfileData, value: any) => {
         setProfile((prev) => ({ ...prev, [field]: value }));
@@ -127,7 +146,7 @@ const ProfilePreview: React.FC<Props> = ({ profile, setProfile, readonly = false
 
                     <div className="header-info">
                         {readonly ? (
-                            <h1 className="preview-name" style={nameFontStyle}>{profile.name || 'Your Name'}</h1>
+                            <h1 className="preview-name" style={{ ...nameFontStyle, ...nameColorStyle }}>{profile.name || 'Your Name'}</h1>
                         ) : (
                             <>
                                 <input
@@ -142,7 +161,7 @@ const ProfilePreview: React.FC<Props> = ({ profile, setProfile, readonly = false
                                         }
                                     }}
                                     placeholder="Your Name"
-                                    style={nameFontStyle}
+                                    style={{ ...nameFontStyle, ...nameColorStyle }}
                                 />
                                 <FontPicker
                                     value={profile.theme.nameFont}
@@ -151,6 +170,15 @@ const ProfilePreview: React.FC<Props> = ({ profile, setProfile, readonly = false
                                     onChange={({ nameFont, nameFontData }) => setProfile((prev) => ({
                                         ...prev,
                                         theme: { ...prev.theme, nameFont, nameFontData }
+                                    }))}
+                                />
+                                <NameColorPicker
+                                    colorMode={profile.theme.nameColorMode}
+                                    color={profile.theme.nameColor}
+                                    gradient={profile.theme.nameGradient}
+                                    onChange={({ nameColorMode, nameColor, nameGradient }) => setProfile((prev) => ({
+                                        ...prev,
+                                        theme: { ...prev.theme, nameColorMode, nameColor, nameGradient }
                                     }))}
                                 />
                             </>

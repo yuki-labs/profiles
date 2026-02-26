@@ -1,0 +1,310 @@
+.name-color-picker {
+    position: relative;
+    width: 100%;
+    margin-top: 0.35rem;
+}
+
+.name-color-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.name-color-trigger:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.name-color-trigger.open {
+    border-color: var(--accent-primary);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.name-color-trigger .trigger-label {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-right: 0.5rem;
+}
+
+.name-color-trigger .trigger-preview {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-align: left;
+}
+
+.trigger-color-swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    flex-shrink: 0;
+}
+
+.name-color-trigger .trigger-chevron {
+    transition: transform 0.2s ease;
+}
+
+.name-color-trigger.open .trigger-chevron {
+    transform: rotate(180deg);
+}
+
+.name-color-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    max-height: 360px;
+    overflow-y: auto;
+    z-index: 50;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+/* Mode tabs */
+.color-mode-tabs {
+    display: flex;
+    gap: 0.25rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    padding: 0.2rem;
+}
+
+.color-mode-tab {
+    flex: 1;
+    padding: 0.4rem 0.5rem;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.color-mode-tab.active {
+    background: var(--accent-primary);
+    color: white;
+}
+
+.color-mode-tab:not(.active):hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+}
+
+/* Solid color section */
+.solid-color-section {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.color-input-wrapper {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    overflow: hidden;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.color-input-wrapper input[type="color"] {
+    position: absolute;
+    inset: -4px;
+    width: calc(100% + 8px);
+    height: calc(100% + 8px);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    background: transparent;
+}
+
+.hex-input {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.4rem 0.6rem;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.hex-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+/* Gradient section */
+.gradient-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.gradient-preview-bar {
+    height: 24px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.gradient-stops {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.gradient-stop {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.gradient-stop .color-input-wrapper {
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+}
+
+.stop-position-input {
+    width: 52px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.3rem 0.4rem;
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    text-align: center;
+}
+
+.stop-position-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.stop-remove-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    opacity: 0.4;
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    transition: all 0.15s ease;
+}
+
+.stop-remove-btn:hover {
+    opacity: 1;
+    color: #ef4444;
+}
+
+.add-stop-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.35rem;
+    background: transparent;
+    border: 1px dashed rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.add-stop-btn:hover {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+    background: rgba(99, 102, 241, 0.08);
+}
+
+/* Angle control */
+.angle-control {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.angle-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.angle-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.1);
+    outline: none;
+}
+
+.angle-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    cursor: pointer;
+    border: 2px solid var(--bg-tertiary);
+}
+
+.angle-value {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    min-width: 32px;
+    text-align: right;
+}
+
+/* Reset */
+.name-color-reset {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: none;
+    border-top: 1px solid var(--glass-border);
+    border-radius: 0;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    margin-top: 0.25rem;
+}
+
+.name-color-reset:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
