@@ -44,3 +44,40 @@ export const FONT_OPTIONS: { name: string; category: string }[] = [
     { name: 'JetBrains Mono', category: 'Monospace' },
     { name: 'Fira Code', category: 'Monospace' },
 ];
+
+const loadedCustomFonts = new Set<string>();
+
+/**
+ * Loads a font from base64-encoded WOFF2 data by injecting a @font-face rule.
+ * Used for custom uploaded fonts where the subset data is stored in the profile.
+ */
+export function loadFontFromData(fontName: string, base64Data: string): void {
+    if (!fontName || !base64Data) return;
+
+    // Use a versioned key so re-subsets (different data) get re-applied
+    const key = `${fontName}:${base64Data.slice(0, 32)}`;
+    if (loadedCustomFonts.has(key)) return;
+    loadedCustomFonts.add(key);
+
+    const style = document.createElement('style');
+    style.textContent = `
+        @font-face {
+            font-family: '${fontName}';
+            src: url(data:font/woff2;base64,${base64Data}) format('woff2');
+            font-display: swap;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+/**
+ * Convenience: loads the correct font based on whether custom data exists.
+ */
+export function loadNameFont(nameFont?: string, nameFontData?: string): void {
+    if (!nameFont) return;
+    if (nameFontData) {
+        loadFontFromData(nameFont, nameFontData);
+    } else {
+        loadGoogleFont(nameFont);
+    }
+}

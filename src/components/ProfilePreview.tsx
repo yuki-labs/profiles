@@ -1,8 +1,9 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import type { ProfileData } from '../types.ts';
 import { Mail, MapPin, Globe, ExternalLink, Github, Twitter, Linkedin, Instagram, Camera, Plus, Trash2 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { loadGoogleFont } from '../fontLoader.ts';
+import { loadNameFont } from '../fontLoader.ts';
+import { subsetFontForText, bufferToBase64, getLocalFontSource } from '../fontSubset.ts';
 import FontPicker from './FontPicker.tsx';
 import './Preview.css';
 
@@ -23,11 +24,31 @@ const getSocialIcon = (platform: string) => {
 
 const ProfilePreview: React.FC<Props> = ({ profile, setProfile, readonly = false }) => {
     const avatarInputRef = useRef<HTMLInputElement>(null);
+    const resubsetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // Load the custom font on mount / when it changes
+    // Load the font on mount / when it changes
     useEffect(() => {
-        loadGoogleFont(profile.theme.nameFont);
-    }, [profile.theme.nameFont]);
+        loadNameFont(profile.theme.nameFont, profile.theme.nameFontData);
+    }, [profile.theme.nameFont, profile.theme.nameFontData]);
+
+    // Re-subset custom font when the username text changes
+    const resubsetForName = useCallback(async (name: string) => {
+        if (!profile.theme.nameFontData || !profile.theme.nameFont) return;
+        const localSource = getLocalFontSource();
+        if (!localSource) return;
+
+        try {
+            const text = name || 'A';
+            const subset = await subsetFontForText(localSource.buffer, text);
+            const base64 = bufferToBase64(subset);
+            setProfile((prev) => ({
+                ...prev,
+                theme: { ...prev.theme, nameFontData: base64 }
+            }));
+        } catch (err) {
+            console.error('Re-subset failed:', err);
+        }
+    }, [profile.theme.nameFontData, profile.theme.nameFont, setProfile]);
 
     const nameFontStyle = profile.theme.nameFont
         ? { fontFamily: `'${profile.theme.nameFont}', sans-serif` }
@@ -112,15 +133,24 @@ const ProfilePreview: React.FC<Props> = ({ profile, setProfile, readonly = false
                                 <input
                                     className="wysiwyg-input preview-name"
                                     value={profile.name}
-                                    onChange={(e) => updateProfile('name', e.target.value)}
+                                    onChange={(e) => {
+                                        updateProfile('name', e.target.value);
+                                        // Debounced re-subset for custom fonts
+                                        if (profile.theme.nameFontData) {
+                                            if (resubsetTimeoutRef.current) clearTimeout(resubsetTimeoutRef.current);
+                                            resubsetTimeoutRef.current = setTimeout(() => resubsetForName(e.target.value), 500);
+                                        }
+                                    }}
                                     placeholder="Your Name"
                                     style={nameFontStyle}
                                 />
                                 <FontPicker
                                     value={profile.theme.nameFont}
-                                    onChange={(font) => setProfile((prev) => ({
+                                    customData={profile.theme.nameFontData}
+                                    username={profile.name}
+                                    onChange={({ nameFont, nameFontData }) => setProfile((prev) => ({
                                         ...prev,
-                                        theme: { ...prev.theme, nameFont: font }
+                                        theme: { ...prev.theme, nameFont, nameFontData }
                                     }))}
                                 />
                             </>
