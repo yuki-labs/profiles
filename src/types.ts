@@ -17,6 +17,7 @@ export interface ProfileData {
         primaryColor: string;
         darkMode: boolean;
         nameFont?: string;
+        nameFontData?: string;
     };
 }
 
